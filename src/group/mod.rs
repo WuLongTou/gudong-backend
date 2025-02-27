@@ -1,18 +1,19 @@
 use axum::{routing::post, Router};
+use bb8::Pool;
+use bb8_redis::RedisConnectionManager;
 
-mod group_operation;
-mod group_types;
+mod handlers;
+mod types;
 
-pub(crate) fn router() -> Router {
+pub fn router() -> Router<Pool<RedisConnectionManager>> {
     Router::new()
-        .route("/create", post(group_operation::create_group))
-        .route(
-            "/query-by-name",
-            post(group_operation::query_groups_by_name),
-        )
+        .route("/create", post(handlers::create_group))
+        .route("/query-by-name", post(handlers::query_groups_by_name))
+        .route("/join", post(handlers::join_group))
         .route(
             "/query-by-location",
-            post(group_operation::query_groups_by_location),
+            post(handlers::query_groups_by_location),
         )
-        .route("/join", post(group_operation::join_group))
+        .route("/send-message", post(handlers::send_message_to_group))
+        .route("/query-message", post(handlers::query_message_from_group))
 }
