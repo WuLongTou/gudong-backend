@@ -12,6 +12,7 @@ pub struct Config {
     pub rate_limit_requests: u32,
     pub server_host: String,
     pub server_port: u16,
+    pub api_base_uri: String,
     pub max_search_radius: f64,
 }
 
@@ -32,6 +33,7 @@ impl Config {
             redis_url: env::var("REDIS_URL")?,
             server_host: env::var("SERVER_HOST")?,
             server_port: env::var("SERVER_PORT")?.parse().unwrap_or(3000),
+            api_base_uri: env::var("API_BASE_URI")?,
             jwt_secret: env::var("JWT_SECRET")?,
             jwt_expiration_secs: jwt_expiration * 3600,
             temp_token_expiration_secs: temp_token_expiration * 3600,

@@ -54,7 +54,7 @@ async fn main() {
     };
 
     // 设置限流器
-    let rate_limiter = Arc::new(RateLimiter::new(redis_client, config));
+    let rate_limiter = Arc::new(RateLimiter::new(redis_client, config.clone()));
 
     // 设置 CORS
     let cors = CorsLayer::permissive();
@@ -89,7 +89,7 @@ async fn main() {
 
     let app = Router::new()
         .nest(
-            "/api/v1",
+            &config.api_base_uri.clone(),
             Router::new().merge(public_routes).merge(protected_routes),
         )
         .layer(cors)
