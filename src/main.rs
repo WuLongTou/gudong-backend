@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use axum::{
@@ -92,9 +92,9 @@ async fn main() {
             "/api/v1",
             Router::new().merge(public_routes).merge(protected_routes),
         )
+        .layer(cors)
         .layer(axum::middleware::from_fn(log_errors))
         // 其他公共中间件
-        .layer(cors)
         .layer(axum::middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit,
@@ -102,7 +102,13 @@ async fn main() {
         .with_state(state.clone());
 
     // 启动服务器
-    let addr = SocketAddr::from(([0, 0, 0, 0], state.config.server_port));
+    let addr = SocketAddr::new(
+        state.config.server_host.parse().unwrap_or_else(|_| {
+            tracing::warn!("Invalid server_host, falling back to dual-stack default");
+            IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
+        }),
+        state.config.server_port,
+    );
     tracing::info!("Server listening on {}", addr);
     axum::serve(
         tokio::net::TcpListener::bind(&addr)

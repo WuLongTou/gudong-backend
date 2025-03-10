@@ -30,14 +30,14 @@ impl Config {
         Ok(Config {
             database_url: env::var("DATABASE_URL")?,
             redis_url: env::var("REDIS_URL")?,
+            server_host: env::var("SERVER_HOST")?,
+            server_port: env::var("SERVER_PORT")?.parse().unwrap_or(3000),
             jwt_secret: env::var("JWT_SECRET")?,
             jwt_expiration_secs: jwt_expiration * 3600,
             temp_token_expiration_secs: temp_token_expiration * 3600,
             rate_limit_window_secs: env::var("RATE_LIMIT_WINDOW")?.parse().unwrap_or(60),
-            server_host: env::var("SERVER_HOST")?,
-            server_port: env::var("SERVER_PORT")?.parse().unwrap_or(3000),
-            max_search_radius: env::var("MAX_SEARCH_RADIUS")?.parse().unwrap_or(5000.0),
             rate_limit_requests: env::var("RATE_LIMIT_REQUESTS")?.parse().unwrap_or(100),
+            max_search_radius: env::var("MAX_SEARCH_RADIUS")?.parse().unwrap_or(5000.0),
         })
     }
 
