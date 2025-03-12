@@ -8,8 +8,8 @@ use axum::{
 use backend::{
     AppState,
     config::Config,
-    handlers,
     middleware::{RateLimiter, auth_middleware, log_errors, rate_limit},
+    routes,
 };
 use sqlx::Executor;
 use sqlx::postgres::PgPoolOptions;
@@ -62,25 +62,25 @@ async fn main() {
     // 将路由分为公开路由和受保护路由
     let public_routes = Router::new()
         // 用户公开路由
-        .route("/users/register", post(handlers::register))
-        .route("/users/temporary", post(handlers::create_temporary))
-        .route("/users/login", post(handlers::login));
+        .route("/users/register", post(routes::user::register))
+        .route("/users/temporary", post(routes::user::create_temporary))
+        .route("/users/login", post(routes::user::login));
 
     let protected_routes = Router::new()
         // 需要认证的用户路由
-        .route("/users/update", post(handlers::update_user))
-        .route("/users/reset-password", post(handlers::reset_password))
+        .route("/users/update", post(routes::user::update_user))
+        .route("/users/reset-password", post(routes::user::reset_password))
         // 群组路由
-        .route("/groups/create", post(handlers::create_group))
-        .route("/groups/by-id", get(handlers::find_by_id))
-        .route("/groups/by-name", get(handlers::find_by_name))
-        .route("/groups/by-location", get(handlers::find_by_location))
-        .route("/groups/join", post(handlers::join_group))
-        .route("/groups/leave", post(handlers::leave_group))
-        .route("/groups/keep-alive", post(handlers::keep_alive))
+        .route("/groups/create", post(routes::group::create_group))
+        .route("/groups/by-id", get(routes::group::find_by_id))
+        .route("/groups/by-name", get(routes::group::find_by_name))
+        .route("/groups/by-location", get(routes::group::find_by_location))
+        .route("/groups/join", post(routes::group::join_group))
+        .route("/groups/leave", post(routes::group::leave_group))
+        .route("/groups/keep-alive", post(routes::group::keep_alive))
         // 消息路由
-        .route("/messages/create", post(handlers::create_message))
-        .route("/messages/get", post(handlers::get_messages))
+        .route("/messages/create", post(routes::message::create_message))
+        .route("/messages/get", post(routes::message::get_messages))
         // 应用认证中间件
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

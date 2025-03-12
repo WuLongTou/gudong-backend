@@ -7,13 +7,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    AppState,
-    models::{CreateGroupRequest, Group, GroupInfo, JoinGroupRequest, KeepAliveRequest},
-    utils::Claims,
-};
+use crate::{AppState, utils::Claims};
 
-use super::{error_to_api_response, success_to_api_response};
+use super::model::{CreateGroupRequest, Group, GroupInfo, JoinGroupRequest, KeepAliveRequest};
+
+use crate::utils::{error_to_api_response, success_to_api_response};
 
 #[derive(Debug, Deserialize)]
 pub struct LocationQuery {
@@ -37,6 +35,7 @@ pub struct KeepAliveResponse {
     pub last_active_time: DateTime<Utc>,
 }
 
+#[axum::debug_handler]
 pub async fn create_group(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -54,6 +53,7 @@ pub async fn create_group(
     }
 }
 
+#[axum::debug_handler]
 pub async fn find_by_id(
     State(state): State<AppState>,
     Query(query): Query<IdQuery>,
@@ -74,6 +74,7 @@ pub async fn find_by_id(
     }
 }
 
+#[axum::debug_handler]
 pub async fn find_by_name(
     State(state): State<AppState>,
     Query(query): Query<NameQuery>,
@@ -90,6 +91,7 @@ pub async fn find_by_name(
     }
 }
 
+#[axum::debug_handler]
 pub async fn find_by_location(
     State(state): State<AppState>,
     Query(query): Query<LocationQuery>,
@@ -111,6 +113,7 @@ pub async fn find_by_location(
     }
 }
 
+#[axum::debug_handler]
 pub async fn join_group(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -134,6 +137,7 @@ pub async fn join_group(
     }
 }
 
+#[axum::debug_handler]
 pub async fn leave_group(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -155,6 +159,7 @@ pub async fn leave_group(
     }
 }
 
+#[axum::debug_handler]
 pub async fn keep_alive(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,

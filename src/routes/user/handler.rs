@@ -6,15 +6,16 @@ use axum::{
 
 use crate::{
     AppState,
-    models::{
-        CreateRegisteredUserRequest, CreateUserResponse, LoginRequest, LoginResponse,
-        ResetPasswordRequest, ResetPasswordResponse, UpdateUserRequest, User,
-    },
     utils::{Claims, generate_temp_token, generate_token},
 };
 
-use super::{error_to_api_response, success_to_api_response};
+use super::model::{
+    CreateRegisteredUserRequest, CreateUserResponse, LoginRequest, LoginResponse,
+    ResetPasswordRequest, ResetPasswordResponse, UpdateUserRequest, User,
+};
+use crate::utils::{error_to_api_response, success_to_api_response};
 
+#[axum::debug_handler]
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<CreateRegisteredUserRequest>,
@@ -62,6 +63,7 @@ pub async fn register(
     }
 }
 
+#[axum::debug_handler]
 pub async fn create_temporary(State(state): State<AppState>) -> impl IntoResponse {
     tracing::info!("create_temporary");
     match User::create_temporary(&state.pool).await {
@@ -90,6 +92,7 @@ pub async fn create_temporary(State(state): State<AppState>) -> impl IntoRespons
     }
 }
 
+#[axum::debug_handler]
 pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
@@ -151,6 +154,7 @@ pub async fn login(
     }
 }
 
+#[axum::debug_handler]
 pub async fn update_user(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
@@ -175,6 +179,7 @@ pub async fn update_user(
     }
 }
 
+#[axum::debug_handler]
 pub async fn reset_password(
     State(state): State<AppState>,
     Json(req): Json<ResetPasswordRequest>,

@@ -5,14 +5,11 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::{
-    AppState,
-    models::{CreateMessageRequest, CreateMessageResponse, GetMessagesRequest, MessageInfo},
-    utils::Claims,
-};
+use super::model::{CreateMessageRequest, CreateMessageResponse, GetMessagesRequest, MessageInfo};
+use crate::utils::{error_to_api_response, success_to_api_response};
+use crate::{AppState, utils::Claims};
 
-use super::{error_to_api_response, success_to_api_response};
-
+#[axum::debug_handler]
 pub async fn create_message(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -34,6 +31,7 @@ pub async fn create_message(
     }
 }
 
+#[axum::debug_handler]
 pub async fn get_messages(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

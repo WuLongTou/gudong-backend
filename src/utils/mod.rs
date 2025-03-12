@@ -1,3 +1,4 @@
+use axum::Json;
 use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -109,4 +110,30 @@ pub fn generate_temp_token(
     }
 
     token
+}
+
+// 新增统一响应结构
+#[derive(serde::Serialize)]
+pub struct ApiResponse<T> {
+    code: i32,
+    msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resp_data: Option<T>,
+}
+
+// 修改所有 handler 返回类型为 Json<ApiResponse<T>>
+pub fn success_to_api_response<T: Serialize>(data: T) -> Json<ApiResponse<T>> {
+    Json(ApiResponse {
+        code: 0,
+        msg: "success".into(),
+        resp_data: Some(data),
+    })
+}
+
+pub fn error_to_api_response<T>(code: i32, msg: String) -> Json<ApiResponse<T>> {
+    Json(ApiResponse {
+        code,
+        msg,
+        resp_data: None,
+    })
 }
