@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
-use uuid::Uuid;
 
 use crate::utils::{generate_recovery_code, hash_password, verify_password};
 
@@ -45,9 +44,13 @@ pub struct LoginResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateUserRequest {
-    pub nickname: Option<String>,
-    pub password: Option<String>,
+pub struct UpdateNicknameRequest {
+    pub nickname: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePasswordRequest {
+    pub password: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +62,17 @@ pub struct ResetPasswordRequest {
 
 #[derive(Debug, Serialize)]
 pub struct ResetPasswordResponse {}
+
+#[derive(Debug, Serialize)]
+pub struct RefreshTokenResponse {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckTokenResponse {
+    pub user_id: String,
+    pub is_temporary: bool,
+}
 
 impl User {
     pub async fn create(
@@ -88,10 +102,11 @@ impl User {
         Ok(user)
     }
 
-    pub async fn create_temporary(pool: &PgPool) -> Result<Self, sqlx::Error> {
-        let user_id = format!("temp_{}", Uuid::new_v4());
-        let nickname = format!("临时用户_{}", &user_id[..8]);
-
+    pub async fn create_temporary(
+        pool: &PgPool,
+        user_id: &str,
+        nickname: &str,
+    ) -> Result<Self, sqlx::Error> {
         tracing::debug!("Creating temporary user: {}", user_id);
 
         let result = sqlx::query_as!(
@@ -142,56 +157,6 @@ impl User {
         }
     }
 
-    pub async fn update(
-        pool: &PgPool,
-        user_id: &str,
-        req: UpdateUserRequest,
-    ) -> Result<Self, sqlx::Error> {
-        let mut updates = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(nickname) = req.nickname {
-            updates.push(format!("nickname = ${}", updates.len() + 1));
-            params.push(nickname);
-        }
-
-        if let Some(password) = req.password {
-            let password_hash = hash_password(&password)
-                .map_err(|e| sqlx::Error::Protocol(format!("Failed to hash password: {}", e)))?;
-            let recovery_code = generate_recovery_code(user_id, &password);
-
-            updates.push(format!("password_hash = ${}", updates.len() + 1));
-            params.push(password_hash);
-            updates.push(format!("recovery_code = ${}", updates.len() + 1));
-            params.push(recovery_code);
-        }
-
-        if updates.is_empty() {
-            return Self::find_by_id(pool, user_id)
-                .await?
-                .ok_or_else(|| sqlx::Error::RowNotFound);
-        }
-
-        let query = format!(
-            r#"
-            UPDATE users
-            SET {}
-            WHERE user_id = ${}
-            RETURNING user_id, nickname, password_hash, recovery_code, is_temporary
-            "#,
-            updates.join(", "),
-            params.len() + 1
-        );
-
-        let mut query = sqlx::query_as(&query);
-        for param in params {
-            query = query.bind(param);
-        }
-        query = query.bind(user_id);
-
-        query.fetch_one(pool).await
-    }
-
     pub async fn reset_password(
         pool: &PgPool,
         req: ResetPasswordRequest,
@@ -219,6 +184,55 @@ impl User {
             password_hash,
             new_recovery_code,
             req.user_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(user)
+    }
+
+    pub async fn update_nickname(
+        pool: &PgPool,
+        user_id: &str,
+        nickname: String,
+    ) -> Result<Self, sqlx::Error> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET nickname = $1
+            WHERE user_id = $2
+            RETURNING user_id, nickname, password_hash, recovery_code, is_temporary
+            "#,
+            nickname,
+            user_id
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(user)
+    }
+
+    pub async fn update_password(
+        pool: &PgPool,
+        user_id: &str,
+        password: String,
+    ) -> Result<Self, sqlx::Error> {
+        let password_hash = hash_password(&password)
+            .map_err(|e| sqlx::Error::Protocol(format!("Failed to hash password: {}", e)))?;
+        let recovery_code = generate_recovery_code(user_id, &password);
+
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET password_hash = $1, recovery_code = $2
+            WHERE user_id = $3
+            RETURNING user_id, nickname, password_hash, recovery_code, is_temporary
+            "#,
+            password_hash,
+            recovery_code,
+            user_id
         )
         .fetch_one(pool)
         .await?;

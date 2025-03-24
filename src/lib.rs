@@ -1,5 +1,7 @@
 use config::Config;
 use sqlx::PgPool;
+use std::sync::Arc;
+use redis::Client as RedisClient;
 
 pub mod config;
 pub mod middleware;
@@ -11,4 +13,5 @@ pub mod routes;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
+    pub redis: Arc<RedisClient>,
 }

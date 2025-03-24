@@ -7,11 +7,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, utils::Claims};
+use crate::AppState;
 
 use super::model::{CreateGroupRequest, Group, GroupInfo, JoinGroupRequest, KeepAliveRequest};
 
-use crate::utils::{error_to_api_response, success_to_api_response};
+use crate::utils::{Claims, error_codes, error_to_api_response, success_to_api_response};
 
 #[derive(Debug, Deserialize)]
 pub struct LocationQuery {
@@ -42,13 +42,13 @@ pub async fn create_group(
     Json(req): Json<CreateGroupRequest>,
 ) -> impl IntoResponse {
     match Group::create(&state.pool, req, claims.sub).await {
-        Ok(group) => {
-            let response: GroupInfo = group.into();
-            (StatusCode::CREATED, success_to_api_response(response))
-        }
-        Err(_) => (
+        Ok(group) => (
+            StatusCode::CREATED,
+            success_to_api_response(GroupInfo::from(group)),
+        ),
+        Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            error_to_api_response(1, format!("internal server error")),
+            error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
         ),
     }
 }
@@ -58,18 +58,18 @@ pub async fn find_by_id(
     State(state): State<AppState>,
     Query(query): Query<IdQuery>,
 ) -> impl IntoResponse {
-    match Group::find_by_id(&state.pool, &query.group_id).await {
-        Ok(Some(group)) => {
-            let response: GroupInfo = group.into();
-            (StatusCode::OK, success_to_api_response(response))
-        }
-        Ok(None) => (
+    match Group::find_by_id(&state.pool, &state.redis, &query.group_id).await {
+        Ok(Some(group)) => (
             StatusCode::OK,
-            error_to_api_response(100, "group not found".to_string()),
+            success_to_api_response(GroupInfo::from(group)),
         ),
-        Err(_) => (
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            error_to_api_response(error_codes::NOT_FOUND, "Group not found".to_string()),
+        ),
+        Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            error_to_api_response(500, "internal server error".to_string()),
+            error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
         ),
     }
 }
@@ -79,14 +79,14 @@ pub async fn find_by_name(
     State(state): State<AppState>,
     Query(query): Query<NameQuery>,
 ) -> impl IntoResponse {
-    match Group::find_by_name(&state.pool, &query.name).await {
+    match Group::find_by_name(&state.pool, &state.redis, &query.name).await {
         Ok(groups) => {
-            let responses: Vec<GroupInfo> = groups.into_iter().map(Into::into).collect();
-            (StatusCode::OK, success_to_api_response(responses))
+            let group_infos = groups.into_iter().map(GroupInfo::from).collect::<Vec<_>>();
+            (StatusCode::OK, success_to_api_response(group_infos))
         }
-        Err(_) => (
+        Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            error_to_api_response(1, "internal server error".to_string()),
+            error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
         ),
     }
 }
@@ -101,14 +101,22 @@ pub async fn find_by_location(
         .unwrap_or(1000.0)
         .min(state.config.max_search_radius);
 
-    match Group::find_by_location(&state.pool, query.latitude, query.longitude, radius).await {
+    match Group::find_by_location(
+        &state.pool,
+        &state.redis,
+        query.latitude,
+        query.longitude,
+        radius,
+    )
+    .await
+    {
         Ok(groups) => {
-            let responses: Vec<GroupInfo> = groups.into_iter().map(Into::into).collect();
-            (StatusCode::OK, success_to_api_response(responses))
+            let group_infos = groups.into_iter().map(GroupInfo::from).collect::<Vec<_>>();
+            (StatusCode::OK, success_to_api_response(group_infos))
         }
-        Err(_) => (
+        Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            error_to_api_response(1, "internal server error".to_string()),
+            error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
         ),
     }
 }
@@ -119,19 +127,34 @@ pub async fn join_group(
     Extension(claims): Extension<Claims>,
     Json(req): Json<JoinGroupRequest>,
 ) -> impl IntoResponse {
-    match Group::join(&state.pool, &req.group_id, &claims.sub, req.password).await {
-        Ok(()) => (StatusCode::OK, success_to_api_response(None::<()>)),
+    match Group::join(
+        &state.pool,
+        &state.redis,
+        &req.group_id,
+        &claims.sub,
+        req.password,
+    )
+    .await
+    {
+        Ok(_) => (
+            StatusCode::OK,
+            success_to_api_response(serde_json::json!({
+                "success": true
+            })),
+        ),
         Err(e) => {
             let status = if e.to_string().contains("Password required")
                 || e.to_string().contains("Invalid password")
             {
-                StatusCode::UNAUTHORIZED
+                StatusCode::FORBIDDEN
+            } else if e.to_string().contains("Row not found") {
+                StatusCode::NOT_FOUND
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
             (
                 status,
-                error_to_api_response(1, "internal server error".to_string()),
+                error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
             )
         }
     }
@@ -143,17 +166,24 @@ pub async fn leave_group(
     Extension(claims): Extension<Claims>,
     Json(req): Json<IdQuery>,
 ) -> impl IntoResponse {
-    match Group::leave(&state.pool, &req.group_id, &claims.sub).await {
-        Ok(()) => (StatusCode::OK, success_to_api_response(None::<()>)),
+    match Group::leave(&state.pool, &state.redis, &req.group_id, &claims.sub).await {
+        Ok(_) => (
+            StatusCode::OK,
+            success_to_api_response(serde_json::json!({
+                "success": true
+            })),
+        ),
         Err(e) => {
             let status = if e.to_string().contains("User not in group") {
+                StatusCode::BAD_REQUEST
+            } else if e.to_string().contains("Row not found") {
                 StatusCode::NOT_FOUND
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
             (
                 status,
-                error_to_api_response(1, "internal server error".to_string()),
+                error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
             )
         }
     }
@@ -161,15 +191,27 @@ pub async fn leave_group(
 
 #[axum::debug_handler]
 pub async fn keep_alive(
-    Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<KeepAliveRequest>,
 ) -> impl IntoResponse {
     match Group::keep_alive(&state.pool, &req.group_id, &claims.sub).await {
-        Ok(_) => (StatusCode::OK, success_to_api_response(None::<()>)),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            error_to_api_response(1, "internal server error".to_string()),
+        Ok(last_active) => (
+            StatusCode::OK,
+            success_to_api_response(serde_json::json!({
+                "last_active": last_active
+            })),
         ),
+        Err(e) => {
+            let status = if e.to_string().contains("Row not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
+            )
+        }
     }
 }

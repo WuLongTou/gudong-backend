@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use axum::{
-    Json,
     body::Body,
     extract::State,
     http::{Request, StatusCode},
@@ -9,9 +8,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use redis::AsyncCommands;
-use serde_json::json;
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    utils::{error_codes, error_to_api_response},
+};
 
 #[derive(Clone)]
 pub struct RateLimiter {
@@ -80,11 +81,17 @@ impl RateLimiter {
         }
 
         if count > self.config.rate_limit_requests as i32 {
-            return Ok(Json(json!({
-                "error": "Too many requests",
-                "retry_after": self.config.rate_limit_window().as_secs()
-            }))
-            .into_response());
+            return Ok((
+                StatusCode::OK,
+                error_to_api_response::<()>(
+                    error_codes::RATE_LIMIT,
+                    format!(
+                        "请求过于频繁，请在{}秒后重试",
+                        self.config.rate_limit_window().as_secs()
+                    ),
+                ),
+            )
+                .into_response());
         }
 
         Ok(next.run(req).await)

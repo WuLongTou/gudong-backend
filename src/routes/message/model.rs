@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
+use redis::{AsyncCommands, Client as RedisClient};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageInfo {
@@ -38,9 +40,14 @@ pub struct GetMessagesRequest {
     pub limit: Option<i64>,
 }
 
+// 缓存相关的常量
+const MESSAGE_CACHE_EXPIRE: u64 = 300; // 消息缓存过期时间，单位秒
+const MESSAGE_CACHE_PREFIX: &str = "msg:group:"; // 消息缓存前缀
+
 impl MessageInfo {
     pub async fn create(
         pool: &PgPool,
+        redis: &Arc<RedisClient>,
         req: CreateMessageRequest,
         user_id: String,
     ) -> Result<Self, sqlx::Error> {
@@ -82,11 +89,18 @@ impl MessageInfo {
         .fetch_one(pool)
         .await?;
 
+        // 发送新消息后，清除相关的消息缓存
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            let cache_key = format!("{}{}", MESSAGE_CACHE_PREFIX, req.group_id);
+            let _: Result<(), redis::RedisError> = conn.del(&cache_key).await;
+        }
+
         Ok(message)
     }
 
     pub async fn get_messages(
         pool: &PgPool,
+        redis: &Arc<RedisClient>,
         req: GetMessagesRequest,
         user_id: &str,
     ) -> Result<Vec<MessageWithNickName>, sqlx::Error> {
@@ -116,11 +130,29 @@ impl MessageInfo {
             .and_then(|limit_value| Some(limit_value.min(100).max(-100)))
             .unwrap_or(50);
 
+        // 如果没有指定message_id获取最新消息，检查缓存
+        if req.message_id.is_none() && limit.abs() <= 50 {
+            let cache_key = format!("{}{}", MESSAGE_CACHE_PREFIX, req.group_id);
+            
+            // 尝试从缓存获取
+            if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                let cached: redis::RedisResult<String> = conn.get(&cache_key).await;
+                
+                if let Ok(json_str) = cached {
+                    if let Ok(messages) = serde_json::from_str::<Vec<MessageWithNickName>>(&json_str) {
+                        tracing::debug!("Get messages from cache: {}", cache_key);
+                        return Ok(messages);
+                    }
+                }
+            }
+        }
+
+        // 从数据库获取消息
         let messages = if let Some(message_id) = req.message_id {
             if limit >= 0 {
                 MessageInfo::get_newer_messages_by_message_id(
                     pool,
-                    req.group_id,
+                    req.group_id.clone(),
                     message_id,
                     limit.abs(),
                 )
@@ -128,14 +160,27 @@ impl MessageInfo {
             } else {
                 MessageInfo::get_older_messages_by_message_id(
                     pool,
-                    req.group_id,
+                    req.group_id.clone(),
                     message_id,
                     limit.abs(),
                 )
                 .await?
             }
         } else {
-            MessageInfo::get_messages_from_latest_message(pool, req.group_id, limit.abs()).await?
+            let msgs = MessageInfo::get_messages_from_latest_message(pool, req.group_id.clone(), limit.abs()).await?;
+            
+            // 最新消息缓存到Redis
+            if limit.abs() <= 50 {
+                if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                    let cache_key = format!("{}{}", MESSAGE_CACHE_PREFIX, req.group_id);
+                    if let Ok(json_str) = serde_json::to_string(&msgs) {
+                        let _: Result<(), redis::RedisError> = conn.set_ex(&cache_key, json_str, MESSAGE_CACHE_EXPIRE).await;
+                        tracing::debug!("Set messages to cache: {}", cache_key);
+                    }
+                }
+            }
+            
+            msgs
         };
 
         Ok(messages)

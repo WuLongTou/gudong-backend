@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
+use redis::{AsyncCommands, Client as RedisClient};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::utils::{calculate_distance, hash_password, verify_password};
@@ -58,6 +61,12 @@ pub struct GroupInfo {
     pub member_count: i32,
     pub is_need_password: bool,
 }
+
+// 缓存相关常量
+const GROUP_CACHE_EXPIRE: u64 = 600; // 群组缓存过期时间，单位秒
+const GROUP_ID_CACHE_PREFIX: &str = "group:id:"; // 群组ID缓存前缀
+const GROUP_NAME_CACHE_PREFIX: &str = "group:name:"; // 群组名称缓存前缀
+const GROUP_LOCATION_CACHE_PREFIX: &str = "group:loc:"; // 群组位置缓存前缀
 
 impl From<Group> for GroupInfo {
     fn from(group: Group) -> Self {
@@ -124,7 +133,26 @@ impl Group {
         Ok(group)
     }
 
-    pub async fn find_by_id(pool: &PgPool, group_id: &str) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn find_by_id(
+        pool: &PgPool,
+        redis: &Arc<RedisClient>,
+        group_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        // 尝试从缓存读取
+        let cache_key = format!("{}{}", GROUP_ID_CACHE_PREFIX, group_id);
+
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            let cached: redis::RedisResult<String> = conn.get(&cache_key).await;
+
+            if let Ok(json_str) = cached {
+                if let Ok(group) = serde_json::from_str::<Group>(&json_str) {
+                    tracing::debug!("Get group from cache: {}", cache_key);
+                    return Ok(Some(group));
+                }
+            }
+        }
+
+        // 从数据库查询
         let group = sqlx::query_as!(
             Group,
             r#"
@@ -139,10 +167,42 @@ impl Group {
         .fetch_optional(pool)
         .await?;
 
+        // 缓存结果
+        if let Some(ref g) = group {
+            if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                if let Ok(json_str) = serde_json::to_string(g) {
+                    let _: Result<(), redis::RedisError> =
+                        conn.set_ex(&cache_key, json_str, GROUP_CACHE_EXPIRE).await;
+                    tracing::debug!("Set group to cache: {}", cache_key);
+                }
+            }
+        }
+
         Ok(group)
     }
 
-    pub async fn find_by_name(pool: &PgPool, name: &str) -> Result<Vec<Self>, sqlx::Error> {
+    pub async fn find_by_name(
+        pool: &PgPool,
+        redis: &Arc<RedisClient>,
+        name: &str,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        // 对于模糊查询，只在名称非常具体（至少5个字符）时使用缓存
+        if name.len() >= 5 {
+            let cache_key = format!("{}{}", GROUP_NAME_CACHE_PREFIX, name);
+
+            if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                let cached: redis::RedisResult<String> = conn.get(&cache_key).await;
+
+                if let Ok(json_str) = cached {
+                    if let Ok(groups) = serde_json::from_str::<Vec<Group>>(&json_str) {
+                        tracing::debug!("Get groups by name from cache: {}", cache_key);
+                        return Ok(groups);
+                    }
+                }
+            }
+        }
+
+        // 从数据库查询
         let groups = sqlx::query_as!(
             Group,
             r#"
@@ -157,15 +217,47 @@ impl Group {
         .fetch_all(pool)
         .await?;
 
+        // 如果名称具体且结果适合缓存，则缓存结果
+        if name.len() >= 5 && groups.len() < 50 {
+            if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                let cache_key = format!("{}{}", GROUP_NAME_CACHE_PREFIX, name);
+                if let Ok(json_str) = serde_json::to_string(&groups) {
+                    let _: Result<(), redis::RedisError> =
+                        conn.set_ex(&cache_key, json_str, GROUP_CACHE_EXPIRE).await;
+                    tracing::debug!("Set groups by name to cache: {}", cache_key);
+                }
+            }
+        }
+
         Ok(groups)
     }
 
     pub async fn find_by_location(
         pool: &PgPool,
+        redis: &Arc<RedisClient>,
         latitude: f64,
         longitude: f64,
         radius: f64,
     ) -> Result<Vec<Self>, sqlx::Error> {
+        // 对于位置查询，将坐标精确到小数点后两位作为缓存key
+        let lat_rounded = (latitude * 100.0).round() / 100.0;
+        let lon_rounded = (longitude * 100.0).round() / 100.0;
+        let cache_key = format!(
+            "{}{}:{}:{}",
+            GROUP_LOCATION_CACHE_PREFIX, lat_rounded, lon_rounded, radius
+        );
+
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            let cached: redis::RedisResult<String> = conn.get(&cache_key).await;
+
+            if let Ok(json_str) = cached {
+                if let Ok(groups) = serde_json::from_str::<Vec<Group>>(&json_str) {
+                    tracing::debug!("Get groups by location from cache: {}", cache_key);
+                    return Ok(groups);
+                }
+            }
+        }
+
         // 使用近似计算方法，先用经纬度范围过滤，再精确计算距离
         let lat_range = radius / 111000.0; // 1度纬度约111km
         let lon_range = radius / (111000.0 * latitude.to_radians().cos());
@@ -199,16 +291,25 @@ impl Group {
             })
             .collect();
 
+        // 缓存结果，时间较短，因为位置查询结果变化较快
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            if let Ok(json_str) = serde_json::to_string(&filtered_groups) {
+                let _: Result<(), redis::RedisError> = conn.set_ex(&cache_key, json_str, 120).await; // 仅缓存2分钟
+                tracing::debug!("Set groups by location to cache: {}", cache_key);
+            }
+        }
+
         Ok(filtered_groups)
     }
 
     pub async fn join(
         pool: &PgPool,
+        redis: &Arc<RedisClient>,
         group_id: &str,
         user_id: &str,
         password: Option<String>,
     ) -> Result<(), sqlx::Error> {
-        let group = Self::find_by_id(pool, group_id)
+        let group = Self::find_by_id(pool, redis, group_id)
             .await?
             .ok_or_else(|| sqlx::Error::RowNotFound)?;
 
@@ -273,10 +374,21 @@ impl Group {
 
         tx.commit().await?;
 
+        // 更新群组成员数后，清除相关缓存
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            let cache_key = format!("{}{}", GROUP_ID_CACHE_PREFIX, group_id);
+            let _: Result<(), redis::RedisError> = conn.del(&cache_key).await;
+        }
+
         Ok(())
     }
 
-    pub async fn leave(pool: &PgPool, group_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn leave(
+        pool: &PgPool,
+        redis: &Arc<RedisClient>,
+        group_id: &str,
+        user_id: &str,
+    ) -> Result<(), sqlx::Error> {
         // 检查用户是否在群组中
         let exists = sqlx::query!(
             r#"
@@ -324,6 +436,12 @@ impl Group {
         .await?;
 
         tx.commit().await?;
+
+        // 更新群组成员数后，清除相关缓存
+        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+            let cache_key = format!("{}{}", GROUP_ID_CACHE_PREFIX, group_id);
+            let _: Result<(), redis::RedisError> = conn.del(&cache_key).await;
+        }
 
         Ok(())
     }

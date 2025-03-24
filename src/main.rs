@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use backend::{
     AppState,
@@ -46,11 +46,13 @@ async fn main() {
     // 设置 Redis 客户端
     let redis_client =
         redis::Client::open(config.redis_url.clone()).expect("Failed to create Redis client");
+    let redis_arc = Arc::new(redis_client.clone());
 
     // 设置应用状态
     let state = AppState {
         pool,
         config: config.clone(),
+        redis: redis_arc,
     };
 
     // 设置限流器
@@ -68,8 +70,11 @@ async fn main() {
 
     let protected_routes = Router::new()
         // 需要认证的用户路由
-        .route("/users/update", post(routes::user::update_user))
+        .route("/users/update-nickname", put(routes::user::update_nickname))
+        .route("/users/update-password", put(routes::user::update_password))
         .route("/users/reset-password", post(routes::user::reset_password))
+        .route("/users/refresh-token", post(routes::user::refresh_token))
+        .route("/users/check-token", get(routes::user::check_token))
         // 群组路由
         .route("/groups/create", post(routes::group::create_group))
         .route("/groups/by-id", get(routes::group::find_by_id))

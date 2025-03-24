@@ -1,13 +1,15 @@
-use crate::{AppState, utils::verify_token};
+use crate::{
+    AppState,
+    utils::{error_codes, error_to_api_response, verify_token},
+};
 use axum::{
-    Json,
     body::Body,
     extract::State,
     http::{Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use serde_json::json;
+use tracing;
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
@@ -26,23 +28,27 @@ pub async fn auth_middleware(
 
     let token = match auth_header {
         Some(t) => t,
-        None => return Err(unauthorized_response("Missing authentication token")),
+        None => return Err(unauthorized_response("缺少认证令牌")),
     };
 
     // 验证token
     let claims = match verify_token(token, config) {
         Ok(c) => c,
-        Err(_) => return Err(unauthorized_response("Invalid or expired token")),
+        Err(_) => return Err(unauthorized_response("无效或已过期的令牌")),
     };
 
     // 简化后的临时用户检查
     if claims.is_temp {
         let path = request.uri().path();
-        if path.starts_with("/api/users/update") || path.starts_with("/api/users/reset-password") {
-            return Err(unauthorized_response(
-                "Temporary users cannot access this feature",
-            ));
+        tracing::info!("临时用户访问路径: {}", path);
+        
+        if path.starts_with("/api/users/update-password") || 
+           path.starts_with("/api/users/reset-password") {
+            tracing::info!("临时用户尝试访问受限功能，被拒绝");
+            return Err(permission_denied_response("临时用户无法访问此功能"));
         }
+        
+        tracing::info!("临时用户访问被允许: {}", path);
     }
 
     // 注入用户ID到请求扩展
@@ -53,5 +59,18 @@ pub async fn auth_middleware(
 
 // 错误响应辅助函数
 fn unauthorized_response(message: &str) -> Response {
-    (StatusCode::UNAUTHORIZED, Json(json!({ "error": message }))).into_response()
+    (
+        StatusCode::OK,
+        error_to_api_response::<()>(error_codes::AUTH_FAILED, message.to_string()),
+    )
+        .into_response()
+}
+
+// 权限不足的错误响应
+fn permission_denied_response(message: &str) -> Response {
+    (
+        StatusCode::OK,
+        error_to_api_response::<()>(error_codes::PERMISSION_DENIED, message.to_string()),
+    )
+        .into_response()
 }

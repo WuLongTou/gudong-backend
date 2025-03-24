@@ -137,3 +137,14 @@ pub fn error_to_api_response<T>(code: i32, msg: String) -> Json<ApiResponse<T>> 
         resp_data: None,
     })
 }
+
+pub mod error_codes {
+    pub const SUCCESS: i32 = 0;
+    pub const VALIDATION_ERROR: i32 = 1000;
+    pub const USER_EXISTS: i32 = 1001;
+    pub const AUTH_FAILED: i32 = 1002;
+    pub const PERMISSION_DENIED: i32 = 1003;
+    pub const NOT_FOUND: i32 = 1004;
+    pub const RATE_LIMIT: i32 = 1005;
+    pub const INTERNAL_ERROR: i32 = 5000;
+}
