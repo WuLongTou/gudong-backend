@@ -13,7 +13,7 @@ use backend::{
 };
 use sqlx::Executor;
 use sqlx::postgres::PgPoolOptions;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -28,6 +28,12 @@ async fn main() {
 
     // 加载配置
     let config = Config::from_env().expect("Failed to load configuration");
+
+    #[cfg(debug_assertions)]
+    tracing::info!("Running in debug mode with CORS enabled");
+
+    #[cfg(not(debug_assertions))]
+    tracing::info!("Running in production mode with CORS disabled");
 
     // 设置数据库连接池
     let pool = PgPoolOptions::new()
@@ -57,9 +63,6 @@ async fn main() {
 
     // 设置限流器
     let rate_limiter = Arc::new(RateLimiter::new(redis_client, config.clone()));
-
-    // 设置 CORS
-    let cors = CorsLayer::permissive();
 
     // 将路由分为公开路由和受保护路由
     let public_routes = Router::new()
@@ -92,19 +95,28 @@ async fn main() {
             auth_middleware,
         ));
 
-    let app = Router::new()
-        .nest(
-            &config.api_base_uri.clone(),
-            Router::new().merge(public_routes).merge(protected_routes),
-        )
-        .layer(cors)
-        .layer(axum::middleware::from_fn(log_errors))
-        // 其他公共中间件
-        .layer(axum::middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit,
-        ))
-        .with_state(state.clone());
+    // 创建基础路由
+    let router = Router::new().nest(
+        &config.api_base_uri.clone(),
+        Router::new().merge(public_routes).merge(protected_routes),
+    );
+
+    // 添加日志中间件和限流中间件
+    let router = router.layer(axum::middleware::from_fn(log_errors)).layer(
+        axum::middleware::from_fn_with_state(rate_limiter, rate_limit),
+    );
+
+    // 根据编译模式决定是否添加CORS
+    #[cfg(debug_assertions)]
+    let router = {
+        tracing::debug!("Adding CORS layer for development mode");
+        // 设置开发环境的CORS，允许所有来源
+        let cors = CorsLayer::permissive();
+        router.layer(cors)
+    };
+
+    // 添加应用状态
+    let app = router.with_state(state.clone());
 
     // 启动服务器
     let addr = SocketAddr::new(
