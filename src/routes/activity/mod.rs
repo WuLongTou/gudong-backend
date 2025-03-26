@@ -1,5 +1,5 @@
 mod handler;
-mod model;
+pub mod model;
 
 pub use handler::{
     create_user_activity, 

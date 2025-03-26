@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 
 use super::model::{CreateGroupRequest, Group, GroupInfo, JoinGroupRequest, KeepAliveRequest};
-
+use crate::routes::activity::model::{UserActivity, activity_types};
 use crate::utils::{Claims, error_codes, error_to_api_response, success_to_api_response};
 
 #[derive(Debug, Deserialize)]
@@ -41,11 +41,26 @@ pub async fn create_group(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateGroupRequest>,
 ) -> impl IntoResponse {
-    match Group::create(&state.pool, req, claims.sub).await {
-        Ok(group) => (
-            StatusCode::CREATED,
-            success_to_api_response(GroupInfo::from(group)),
-        ),
+    match Group::create(&state.pool, req.clone(), claims.sub.clone()).await {
+        Ok(group) => {
+            // 创建群组活动记录
+            let activity_details = format!("创建了群组「{}」", group.name);
+            let _ = UserActivity::create(
+                &state.pool,
+                &state.redis,
+                &claims.sub,
+                activity_types::GROUP_CREATE,
+                Some(&activity_details),
+                group.latitude,
+                group.longitude,
+            )
+            .await;
+            
+            (
+                StatusCode::CREATED,
+                success_to_api_response(GroupInfo::from(group)),
+            )
+        },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             error_to_api_response(error_codes::INTERNAL_ERROR, e.to_string()),
@@ -136,12 +151,27 @@ pub async fn join_group(
     )
     .await
     {
-        Ok(_) => (
-            StatusCode::OK,
-            success_to_api_response(serde_json::json!({
-                "success": true
-            })),
-        ),
+        Ok(group) => {
+            // 创建加入群组活动记录
+            let activity_details = format!("加入了群组「{}」", group.name);
+            let _ = UserActivity::create(
+                &state.pool,
+                &state.redis,
+                &claims.sub,
+                activity_types::GROUP_JOIN,
+                Some(&activity_details),
+                group.latitude,
+                group.longitude,
+            )
+            .await;
+            
+            (
+                StatusCode::OK,
+                success_to_api_response(serde_json::json!({
+                    "success": true
+                })),
+            )
+        },
         Err(e) => {
             let status = if e.to_string().contains("Password required")
                 || e.to_string().contains("Invalid password")
@@ -166,13 +196,33 @@ pub async fn leave_group(
     Extension(claims): Extension<Claims>,
     Json(req): Json<IdQuery>,
 ) -> impl IntoResponse {
+    // 首先获取群组信息，以便用于创建活动
+    let group_result = Group::find_by_id(&state.pool, &state.redis, &req.group_id).await;
+    
     match Group::leave(&state.pool, &state.redis, &req.group_id, &claims.sub).await {
-        Ok(_) => (
-            StatusCode::OK,
-            success_to_api_response(serde_json::json!({
-                "success": true
-            })),
-        ),
+        Ok(_) => {
+            // 如果我们能获取群组信息，创建离开群组活动记录
+            if let Ok(Some(group)) = group_result {
+                let activity_details = format!("离开了群组「{}」", group.name);
+                let _ = UserActivity::create(
+                    &state.pool,
+                    &state.redis,
+                    &claims.sub,
+                    activity_types::GROUP_LEAVE,
+                    Some(&activity_details),
+                    group.latitude,
+                    group.longitude,
+                )
+                .await;
+            }
+            
+            (
+                StatusCode::OK,
+                success_to_api_response(serde_json::json!({
+                    "success": true
+                })),
+            )
+        },
         Err(e) => {
             let status = if e.to_string().contains("User not in group") {
                 StatusCode::BAD_REQUEST

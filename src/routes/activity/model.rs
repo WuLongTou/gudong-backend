@@ -10,6 +10,28 @@ const USER_LOCATION_CACHE_PREFIX: &str = "user:loc:"; // 用户位置缓存前�
 const ACTIVITY_CACHE_PREFIX: &str = "activity:"; // 活动缓存前缀
 const CACHE_EXPIRE: u64 = 120; // 缓存过期时间，单位秒
 
+// 活动类型常量
+pub mod activity_types {
+    // 用户活动类型
+    pub const USER_ONLINE: &str = "USER_ONLINE";
+    pub const USER_CHECKIN: &str = "USER_CHECKIN";
+    
+    // 群组活动类型
+    pub const GROUP_CREATE: &str = "GROUP_CREATE";
+    pub const GROUP_JOIN: &str = "GROUP_JOIN";
+    pub const GROUP_LEAVE: &str = "GROUP_LEAVE";
+    pub const GROUP_MEMBER_ADDED: &str = "GROUP_MEMBER_ADDED";
+    pub const GROUP_MEMBER_REMOVED: &str = "GROUP_MEMBER_REMOVED";
+    pub const GROUP_UPDATE: &str = "GROUP_UPDATE";
+    
+    // 社交活动类型
+    pub const FRIEND_REQUEST: &str = "FRIEND_REQUEST";
+    pub const FRIEND_ACCEPT: &str = "FRIEND_ACCEPT";
+    
+    // 消息活动类型
+    pub const MESSAGE_SENT: &str = "MESSAGE_SENT";
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NearbyUser {
     pub user_id: String,

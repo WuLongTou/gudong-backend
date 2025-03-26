@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::utils::{calculate_distance, hash_password, verify_password};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Group {
     pub group_id: String,
     pub name: String,
@@ -23,7 +23,7 @@ pub struct Group {
     pub member_count: i32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CreateGroupRequest {
     pub name: String,
     pub location_name: String,
@@ -33,7 +33,7 @@ pub struct CreateGroupRequest {
     pub password: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct JoinGroupRequest {
     pub group_id: String,
     pub password: Option<String>,
@@ -308,25 +308,32 @@ impl Group {
         group_id: &str,
         user_id: &str,
         password: Option<String>,
-    ) -> Result<(), sqlx::Error> {
-        let group = Self::find_by_id(pool, redis, group_id)
-            .await?
-            .ok_or_else(|| sqlx::Error::RowNotFound)?;
+    ) -> Result<Group, sqlx::Error> {
+        // 先获取群组信息
+        let group = match Self::find_by_id(pool, redis, group_id).await? {
+            Some(group) => group,
+            None => return Err(sqlx::Error::RowNotFound),
+        };
 
-        // 检查密码
-        if let Some(hash) = group.password_hash {
-            let password = password.ok_or_else(|| {
-                sqlx::Error::Protocol("Password required to join this group".into())
-            })?;
-
-            if !verify_password(&password, &hash).map_err(|e| {
-                sqlx::Error::Protocol(format!("Password verification failed: {}", e))
-            })? {
-                return Err(sqlx::Error::Protocol("Invalid password".into()));
+        // 检查是否需要密码
+        if let Some(hash) = &group.password_hash {
+            match password {
+                None => {
+                    return Err(sqlx::Error::Protocol(
+                        "Password required to join this group".to_string(),
+                    ))
+                }
+                Some(pwd) => {
+                    if !verify_password(&pwd, hash).map_err(|e| {
+                        sqlx::Error::Protocol(format!("Failed to verify password: {}", e))
+                    })? {
+                        return Err(sqlx::Error::Protocol("Invalid password".to_string()));
+                    }
+                }
             }
         }
 
-        // 检查用户是否已经在群组中
+        // 检查用户是否已在群组中
         let exists = sqlx::query!(
             r#"
             SELECT EXISTS(
@@ -342,45 +349,53 @@ impl Group {
         .exists;
 
         if exists {
-            return Ok(());
+            // 用户已在群组中，更新最后活动时间
+            sqlx::query!(
+                r#"
+                UPDATE group_members
+                SET last_active = NOW()
+                WHERE group_id = $1 AND user_id = $2
+                "#,
+                group_id,
+                user_id
+            )
+            .execute(pool)
+            .await?;
+        } else {
+            // 用户不在群组中，添加新成员
+            sqlx::query!(
+                r#"
+                INSERT INTO group_members (group_id, user_id, joined_at, last_active)
+                VALUES ($1, $2, NOW(), NOW())
+                "#,
+                group_id,
+                user_id
+            )
+            .execute(pool)
+            .await?;
+
+            // 更新群组成员数量
+            sqlx::query!(
+                r#"
+                UPDATE groups
+                SET member_count = member_count + 1
+                WHERE group_id = $1
+                RETURNING member_count
+                "#,
+                group_id
+            )
+            .fetch_one(pool)
+            .await?;
+
+            // 清除缓存
+            if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
+                let cache_key = format!("{}{}", GROUP_ID_CACHE_PREFIX, group_id);
+                let _: Result<(), redis::RedisError> = conn.del(&cache_key).await;
+                tracing::debug!("Delete group from cache: {}", cache_key);
+            }
         }
 
-        // 开启事务
-        let mut tx = pool.begin().await?;
-
-        // 添加用户到群组
-        sqlx::query!(
-            r#"
-            INSERT INTO group_members (group_id, user_id, joined_at)
-            VALUES ($1, $2, NOW())
-            "#,
-            group_id,
-            user_id
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        // 更新群组成员数
-        sqlx::query!(
-            r#"
-            UPDATE groups
-            SET member_count = member_count + 1
-            WHERE group_id = $1
-            "#,
-            group_id
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-
-        // 更新群组成员数后，清除相关缓存
-        if let Ok(mut conn) = redis.get_multiplexed_async_connection().await {
-            let cache_key = format!("{}{}", GROUP_ID_CACHE_PREFIX, group_id);
-            let _: Result<(), redis::RedisError> = conn.del(&cache_key).await;
-        }
-
-        Ok(())
+        Ok(group)
     }
 
     pub async fn leave(
