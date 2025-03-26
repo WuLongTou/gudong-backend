@@ -1,6 +1,6 @@
 use axum::{
     Extension,
-    extract::{Json, Query, State},
+    extract::{Json, Query, State, Path},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -214,4 +214,105 @@ pub async fn keep_alive(
             )
         }
     }
+}
+
+// 获取群组详情
+pub async fn get_group_detail(
+    State(state): State<AppState>,
+    axum::extract::Path(group_id): axum::extract::Path<String>,
+) -> impl axum::response::IntoResponse {
+    // 实际实现会根据群组ID查询详情
+    // 这里暂时返回一个空响应
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": {
+            "id": group_id,
+            "name": "",
+            "description": "",
+            "memberCount": 0,
+            "createdAt": ""
+        }
+    }))
+}
+
+// 获取用户所在的群组
+pub async fn get_user_groups(
+    // 参数和实现
+) -> impl axum::response::IntoResponse {
+    // 暂时返回一个空响应，后续实现
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": {
+            "items": [],
+            "total": 0
+        }
+    }))
+}
+
+// 获取附近的群组
+pub async fn find_nearby_groups(
+    // 参数和实现
+) -> impl axum::response::IntoResponse {
+    // 暂时返回一个空响应，后续实现
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "pageSize": 10,
+            "totalPages": 0
+        }
+    }))
+}
+
+// 获取群组成员
+pub async fn get_group_members(
+    State(state): State<AppState>,
+    axum::extract::Path(group_id): axum::extract::Path<String>,
+) -> impl axum::response::IntoResponse {
+    // 实际实现会根据群组ID查询成员
+    // 这里暂时返回一个空响应
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": {
+            "items": [],
+            "total": 0
+        }
+    }))
+}
+
+// 移除群组成员
+pub async fn remove_group_member(
+    State(state): State<AppState>,
+    axum::extract::Path((group_id, user_id)): axum::extract::Path<(String, String)>,
+    Extension(claims): Extension<Claims>,
+) -> impl axum::response::IntoResponse {
+    // 实际实现会验证当前用户权限并移除成员
+    // 这里暂时返回一个空响应
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": null
+    }))
+}
+
+// 设置成员角色
+pub async fn set_member_role(
+    State(state): State<AppState>,
+    axum::extract::Path((group_id, user_id)): axum::extract::Path<(String, String)>,
+    Extension(claims): Extension<Claims>,
+    Json(role_data): Json<serde_json::Value>,
+) -> impl axum::response::IntoResponse {
+    // 实际实现会验证当前用户权限并设置角色
+    // 这里暂时返回一个空响应
+    axum::Json(serde_json::json!({
+        "code": 0,
+        "msg": "success",
+        "resp_data": null
+    }))
 }

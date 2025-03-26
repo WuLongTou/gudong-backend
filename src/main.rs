@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
 };
 use backend::{
     AppState,
@@ -13,7 +13,7 @@ use backend::{
 };
 use sqlx::Executor;
 use sqlx::postgres::PgPoolOptions;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -78,6 +78,10 @@ async fn main() {
         .route("/users/reset-password", post(routes::user::reset_password))
         .route("/users/refresh-token", post(routes::user::refresh_token))
         .route("/users/check-token", get(routes::user::check_token))
+        // 新增用户路由
+        .route("/users/nearby", get(routes::activity::find_nearby_users))
+        .route("/users/me/activities", get(routes::activity::find_user_activities))
+        .route("/users/{user_id}/activities", get(routes::activity::find_user_activities))
         // 群组路由
         .route("/groups/create", post(routes::group::create_group))
         .route("/groups/by-id", get(routes::group::find_by_id))
@@ -86,9 +90,20 @@ async fn main() {
         .route("/groups/join", post(routes::group::join_group))
         .route("/groups/leave", post(routes::group::leave_group))
         .route("/groups/keep-alive", post(routes::group::keep_alive))
+        // 新增群组路由
+        .route("/groups/{group_id}", get(routes::group::get_group_detail))
+        .route("/groups/user", get(routes::group::get_user_groups))
+        .route("/groups/nearby", get(routes::group::find_nearby_groups))
+        .route("/groups/{group_id}/members", get(routes::group::get_group_members))
+        .route("/groups/{group_id}/members/{user_id}", delete(routes::group::remove_group_member))
+        .route("/groups/{group_id}/members/{user_id}/role", put(routes::group::set_member_role))
         // 消息路由
         .route("/messages/create", post(routes::message::create_message))
         .route("/messages/get", post(routes::message::get_messages))
+        // 活动路由
+        .route("/activities/create", post(routes::activity::create_user_activity))
+        .route("/activities/nearby", get(routes::activity::find_nearby_activities))
+        .route("/activities/recent", get(routes::activity::find_recent_activities))
         // 应用认证中间件
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
