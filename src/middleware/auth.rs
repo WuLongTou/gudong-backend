@@ -12,12 +12,12 @@ use axum::{
 use tracing;
 
 pub async fn auth_middleware(
-    State(state): State<AppState>,
-    mut request: Request<Body>,
+    State(app_state): State<AppState>,
+    request: Request<Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    // 直接使用state中的配置
-    let config = &state.config;
+    // 获取AppState
+    let config = &app_state.config;
 
     // 从请求头获取Authorization
     let headers = request.headers();
@@ -41,17 +41,19 @@ pub async fn auth_middleware(
     if claims.is_temp {
         let path = request.uri().path();
         tracing::info!("临时用户访问路径: {}", path);
-        
-        if path.starts_with("/api/users/update-password") || 
-           path.starts_with("/api/users/reset-password") {
+
+        if path.starts_with("/api/users/update-password")
+            || path.starts_with("/api/users/reset-password")
+        {
             tracing::info!("临时用户尝试访问受限功能，被拒绝");
             return Err(permission_denied_response("临时用户无法访问此功能"));
         }
-        
+
         tracing::info!("临时用户访问被允许: {}", path);
     }
 
     // 注入用户ID到请求扩展
+    let mut request = request;
     request.extensions_mut().insert(claims);
 
     Ok(next.run(request).await)

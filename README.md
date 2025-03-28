@@ -219,4 +219,56 @@ cargo test
 
 ```bash
 cargo build --release
-``` 
+```
+
+## API类型规范
+
+为确保前后端接口类型定义一致且明确，我们采用以下规范：
+
+### 类型命名规范
+
+- API返回类型：`ApiResponse<T>`，包含统一的结构：
+  ```rust
+  pub struct ApiResponse<T> {
+      pub code: i32,         // 错误码，0表示成功
+      pub msg: String,       // 错误消息
+      pub resp_data: Option<T>, // 响应数据
+  }
+  ```
+
+- 请求类型: `XxxRequest`，例如 `CreateUserRequest`
+- 响应类型: `XxxResponse`，例如 `CreateUserResponse`
+- 对于没有请求体的请求，使用 `EmptyRequest` 类型
+- 对于没有响应体的响应，使用 `EmptyResponse` 类型
+
+### API函数规范
+
+所有API处理函数应明确定义请求和响应类型，并使用`ApiResponse`包装响应数据：
+
+```rust
+// 标准格式
+pub async fn handler_name(
+    Json(req): Json<SomeRequest>,
+) -> impl IntoResponse {
+    // 处理逻辑
+    success_to_api_response(SomeResponse { ... })
+    
+    // 错误情况
+    error_to_api_response(ERROR_CODE, "错误信息".to_string())
+}
+
+// 无请求体示例
+pub async fn handler_without_req() -> impl IntoResponse {
+    success_to_api_response(SomeResponse { ... })
+}
+
+// 无响应体示例
+pub async fn handler_without_resp(
+    Json(req): Json<SomeRequest>,
+) -> impl IntoResponse {
+    // 处理逻辑
+    success_to_api_response(EmptyResponse {})
+}
+```
+
+这样做可以确保前后端类型定义的一致性，方便接口对接和代码维护。 

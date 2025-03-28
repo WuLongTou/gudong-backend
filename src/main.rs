@@ -9,7 +9,7 @@ use backend::{
     AppState,
     config::Config,
     middleware::{RateLimiter, auth_middleware, log_errors, rate_limit},
-    routes,
+    api,
 };
 use sqlx::Executor;
 use sqlx::postgres::PgPoolOptions;
@@ -67,43 +67,42 @@ async fn main() {
     // 将路由分为公开路由和受保护路由
     let public_routes = Router::new()
         // 用户公开路由
-        .route("/users/register", post(routes::user::register))
-        .route("/users/temporary", post(routes::user::create_temporary))
-        .route("/users/login", post(routes::user::login));
+        .route("/users/register", post(api::handlers::user::register))
+        .route("/users/temporary", post(api::handlers::user::create_temporary))
+        .route("/users/login", post(api::handlers::user::login));
 
     let protected_routes = Router::new()
         // 需要认证的用户路由
-        .route("/users/update-nickname", put(routes::user::update_nickname))
-        .route("/users/update-password", put(routes::user::update_password))
-        .route("/users/reset-password", post(routes::user::reset_password))
-        .route("/users/refresh-token", post(routes::user::refresh_token))
-        .route("/users/check-token", get(routes::user::check_token))
+        .route("/users/update-nickname", put(api::handlers::user::update_nickname))
+        .route("/users/update-password", put(api::handlers::user::update_password))
+        .route("/users/reset-password", post(api::handlers::user::reset_password))
+        .route("/users/refresh-token", post(api::handlers::user::refresh_token))
+        .route("/users/check-token", get(api::handlers::user::check_token))
         // 新增用户路由
-        .route("/users/nearby", get(routes::activity::find_nearby_users))
-        .route("/users/me/activities", get(routes::activity::find_user_activities))
-        .route("/users/{user_id}/activities", get(routes::activity::find_user_activities))
+        .route("/users/nearby", get(api::handlers::activity::find_nearby_users))
+        .route("/users/me/activities", get(api::handlers::activity::find_user_activities))
+        .route("/users/{user_id}/activities", get(api::handlers::activity::find_user_activities))
         // 群组路由
-        .route("/groups/create", post(routes::group::create_group))
-        .route("/groups/by-id", get(routes::group::find_by_id))
-        .route("/groups/by-name", get(routes::group::find_by_name))
-        .route("/groups/by-location", get(routes::group::find_by_location))
-        .route("/groups/join", post(routes::group::join_group))
-        .route("/groups/leave", post(routes::group::leave_group))
-        .route("/groups/keep-alive", post(routes::group::keep_alive))
+        .route("/groups/create", post(api::handlers::group::create_group))
+        .route("/groups/by-name", get(api::handlers::group::query_groups_by_name))
+        .route("/groups/by-location", get(api::handlers::group::query_groups_by_location))
+        .route("/groups/join", post(api::handlers::group::join_group))
+        .route("/groups/leave", post(api::handlers::group::leave_group))
+        .route("/groups/keep-alive", post(api::handlers::group::keep_alive))
         // 新增群组路由
-        .route("/groups/{group_id}", get(routes::group::get_group_detail))
-        .route("/groups/user", get(routes::group::get_user_groups))
-        .route("/groups/nearby", get(routes::group::find_nearby_groups))
-        .route("/groups/{group_id}/members", get(routes::group::get_group_members))
-        .route("/groups/{group_id}/members/{user_id}", delete(routes::group::remove_group_member))
-        .route("/groups/{group_id}/members/{user_id}/role", put(routes::group::set_member_role))
+        .route("/groups/{group_id}", get(api::handlers::group::get_group_info))
+        .route("/groups/user", get(api::handlers::group::get_user_groups))
+        .route("/groups/nearby", get(api::handlers::group::find_nearby_groups))
+        .route("/groups/{group_id}/members", get(api::handlers::group::get_group_members))
+        .route("/groups/{group_id}/members/{user_id}", delete(api::handlers::group::remove_group_member))
+        .route("/groups/{group_id}/members/{user_id}/role", put(api::handlers::group::update_user_role))
         // 消息路由
-        .route("/messages/create", post(routes::message::create_message))
-        .route("/messages/get", post(routes::message::get_messages))
+        .route("/messages/create", post(api::handlers::message::send_message))
+        .route("/messages/get", post(api::handlers::message::get_message_history))
         // 活动路由
-        .route("/activities/create", post(routes::activity::create_user_activity))
-        .route("/activities/nearby", get(routes::activity::find_nearby_activities))
-        .route("/activities/recent", get(routes::activity::find_recent_activities))
+        .route("/activities/create", post(api::handlers::activity::create_user_activity))
+        .route("/activities/nearby", get(api::handlers::activity::get_nearby_activities))
+        .route("/activities/recent", get(api::handlers::activity::get_all_activities))
         // 应用认证中间件
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
