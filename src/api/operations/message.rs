@@ -22,7 +22,7 @@ pub async fn send_message(
     Json(payload): Json<SendMessageRequest>,
 ) -> impl IntoResponse {
     tracing::debug!(
-        "用户 {} 正在向群组 {} 发送消息",
+        "用户(登录ID) {} 正在向群组 {} 发送消息",
         claims.sub,
         payload.group_id
     );
@@ -40,7 +40,7 @@ pub async fn send_message(
     {
         Ok(message_id) => {
             tracing::info!(
-                "用户 {} 成功向群组 {} 发送消息 {}",
+                "用户(登录ID) {} 成功向群组 {} 发送消息 {}",
                 user_id,
                 payload.group_id,
                 message_id
@@ -56,7 +56,7 @@ pub async fn send_message(
         Err(e) => {
             if e.to_string().contains("User is not a member") {
                 tracing::warn!(
-                    "用户 {} 向群组 {} 发送消息失败: 不是群组成员",
+                    "用户(登录ID) {} 向群组 {} 发送消息失败: 不是群组成员",
                     user_id,
                     payload.group_id
                 );
@@ -69,7 +69,7 @@ pub async fn send_message(
                 )
             } else {
                 tracing::error!(
-                    "用户 {} 向群组 {} 发送消息失败: {}",
+                    "用户(登录ID) {} 向群组 {} 发送消息失败: {}",
                     user_id,
                     payload.group_id,
                     e
@@ -94,7 +94,7 @@ pub async fn get_message_history(
     Query(params): Query<GetMessageHistoryPageParams>,
 ) -> impl IntoResponse {
     let user_id = &claims.sub;
-    tracing::debug!("用户 {} 正在获取群组 {} 的消息历史", user_id, group_id);
+    tracing::debug!("用户(登录ID) {} 正在获取群组 {} 的消息历史", user_id, group_id);
 
     // 创建消息仓库实例
     let db_operation = MessageOperation::new(Arc::new(state.pool.clone()));
@@ -115,7 +115,7 @@ pub async fn get_message_history(
 
     if let Err(err) = is_member_result {
         tracing::error!(
-            "检查用户 {} 是否为群组 {} 成员时出错: {}",
+            "检查用户(登录ID) {} 是否为群组 {} 成员时出错: {}",
             user_id,
             group_id,
             err
@@ -133,7 +133,7 @@ pub async fn get_message_history(
 
     if !is_member {
         tracing::warn!(
-            "用户 {} 尝试获取群组 {} 消息但不是群组成员",
+            "用户(登录ID) {} 尝试获取群组 {} 消息但不是群组成员",
             user_id,
             group_id
         );
@@ -153,7 +153,7 @@ pub async fn get_message_history(
     {
         Ok(messages) => {
             tracing::debug!(
-                "用户 {} 成功获取群组 {} 的 {} 条消息",
+                "用户(登录ID) {} 成功获取群组 {} 的 {} 条消息",
                 user_id,
                 group_id,
                 messages.len()
@@ -195,7 +195,7 @@ pub async fn get_message_history(
             )
         }
         Err(e) => {
-            tracing::error!("用户 {} 获取群组 {} 消息失败: {}", user_id, group_id, e);
+            tracing::error!("用户(登录ID) {} 获取群组 {} 消息失败: {}", user_id, group_id, e);
             (
                 StatusCode::OK,
                 error_to_api_response::<GetMessageHistoryResponse>(
@@ -214,7 +214,7 @@ pub async fn delete_message(
     Path(message_id): Path<String>,
 ) -> impl IntoResponse {
     let user_id = &claims.sub;
-    tracing::debug!("用户 {} 正在尝试删除消息 {}", user_id, message_id);
+    tracing::debug!("用户(登录ID) {} 正在尝试删除消息 {}", user_id, message_id);
 
     // 创建消息仓库实例
     let db_operation = MessageOperation::new(Arc::new(state.pool.clone()));
@@ -223,14 +223,14 @@ pub async fn delete_message(
     match db_operation.delete_message(&message_id, user_id).await {
         Ok(deleted) => {
             if deleted {
-                tracing::info!("用户 {} 成功删除消息 {}", user_id, message_id);
+                tracing::info!("用户(登录ID) {} 成功删除消息 {}", user_id, message_id);
                 (
                     StatusCode::OK,
                     success_to_api_response(DeleteMessageResponse { success: true }),
                 )
             } else {
                 tracing::warn!(
-                    "用户 {} 无法删除消息 {}: 消息不存在或没有权限",
+                    "用户(登录ID) {} 无法删除消息 {}: 消息不存在或没有权限",
                     user_id,
                     message_id
                 );
@@ -244,7 +244,7 @@ pub async fn delete_message(
             }
         }
         Err(e) => {
-            tracing::error!("用户 {} 删除消息 {} 失败: {}", user_id, message_id, e);
+            tracing::error!("用户(登录ID) {} 删除消息 {} 失败: {}", user_id, message_id, e);
             (
                 StatusCode::OK,
                 error_to_api_response::<DeleteMessageResponse>(

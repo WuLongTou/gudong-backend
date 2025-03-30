@@ -52,13 +52,14 @@ pub async fn get_nearby_activities(
     // 创建活动存储库实例
     let repo = Arc::new(ActivityOperation::new(Arc::new(state.pool.clone())));
 
-    // 从数据库获取附近活动
+    // 从数据库获取附近活动，只获取用户签到类型的活动
     match repo
-        .find_nearby_activities(
+        .find_nearby_activities_by_type(
             params.latitude,
             params.longitude,
             radius,
             params.limit as i64,
+            &["USER_CHECKIN"],
         )
         .await
     {

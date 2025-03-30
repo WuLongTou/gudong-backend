@@ -62,11 +62,10 @@ pub async fn register(
                 Ok((token, expires_at)) => (
                     StatusCode::OK,
                     success_to_api_response(CreateUserResponse {
-                        user_id: user.user_id.clone(),
+                        user_id: user.public_user_id.clone(),
                         nickname: user.nickname.clone(),
                         token,
                         expires_at: Some(expires_at),
-                        public_user_id: user.public_user_id.clone(),
                     }),
                 ),
                 Err(_) => (
@@ -116,11 +115,10 @@ pub async fn create_temporary(
                 Ok((token, expires_at)) => (
                     StatusCode::OK,
                     success_to_api_response(CreateUserResponse {
-                        user_id: user.user_id.clone(),
+                        user_id: user.public_user_id.clone(),
                         nickname: user.nickname.clone(),
                         token,
                         expires_at: Some(expires_at),
-                        public_user_id: user.public_user_id.clone(),
                     }),
                 ),
                 Err(_) => (
@@ -247,11 +245,10 @@ pub async fn login(
         Ok((token, expires_at)) => (
             StatusCode::OK,
             success_to_api_response(LoginResponse {
-                user_id: user_from_db.user_id,
+                user_id: user_from_db.public_user_id.clone(),
                 nickname: user_from_db.nickname,
                 token,
                 expires_at: Some(expires_at),
-                public_user_id: user_from_db.public_user_id,
             }),
         ),
         Err(_) => (
@@ -290,13 +287,12 @@ pub async fn update_nickname(
             (
                 StatusCode::OK,
                 success_to_api_response(UserInfo {
-                    user_id: user.user_id,
+                    user_id: user.public_user_id.clone(),
                     nickname: user.nickname,
                     is_temporary: user.is_temporary,
                     created_at: Some(user.created_at),
                     updated_at: None,
                     avatar_url: None,
-                    public_user_id: user.public_user_id,
                 }),
             )
         }
@@ -500,10 +496,9 @@ pub async fn check_token(
         Ok(Some(user)) => (
             StatusCode::OK,
             success_to_api_response(CheckTokenResponse {
-                user_id: user.user_id,
+                user_id: user.public_user_id.clone(),
                 nickname: user.nickname,
                 is_temporary: user.is_temporary,
-                public_user_id: user.public_user_id,
             }),
         ),
         _ => {
@@ -518,10 +513,9 @@ pub async fn check_token(
                     (
                         StatusCode::OK,
                         success_to_api_response(CheckTokenResponse {
-                            user_id: user.user_id,
+                            user_id: user.public_user_id.clone(),
                             nickname: user.nickname,
                             is_temporary: user.is_temporary,
-                            public_user_id: user.public_user_id,
                         }),
                     )
                 }
@@ -552,7 +546,7 @@ pub async fn get_current_user(
         Ok(Some(user)) => (
             StatusCode::OK,
             success_to_api_response(UserInfo {
-                user_id: user.user_id,
+                user_id: user.public_user_id.clone(),
                 nickname: user.nickname,
                 is_temporary: user.is_temporary,
                 created_at: Some(
@@ -560,7 +554,6 @@ pub async fn get_current_user(
                 ),
                 updated_at: None,
                 avatar_url: None,
-                public_user_id: user.public_user_id,
             }),
         ),
         _ => {
@@ -575,13 +568,12 @@ pub async fn get_current_user(
                     (
                         StatusCode::OK,
                         success_to_api_response(UserInfo {
-                            user_id: user.user_id,
+                            user_id: user.public_user_id.clone(),
                             nickname: user.nickname,
                             is_temporary: user.is_temporary,
                             created_at: Some(user.created_at),
                             updated_at: None,
                             avatar_url: None,
-                            public_user_id: user.public_user_id,
                         }),
                     )
                 }

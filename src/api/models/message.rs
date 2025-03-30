@@ -70,7 +70,7 @@ pub struct MessageDetailedInfo {
     pub id: String,
     /// 群组ID
     pub group_id: String,
-    /// 发送者ID
+    /// 发送者ID (公开ID，非登录ID)
     pub sender_id: String,
     /// 发送者名称
     pub sender_name: String,

@@ -65,6 +65,7 @@ impl MessageEntity {
 pub struct MessageWithUser {
     pub message_id: String,
     pub group_id: String,
+    /// 用户的公开ID，而非登录ID
     pub user_id: String,
     pub nickname: String,
     pub content: String,

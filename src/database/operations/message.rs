@@ -45,8 +45,21 @@ impl MessageOperation {
             ));
         }
 
+        // 获取用户的公开ID
+        let user_public_id = sqlx::query!(
+            r#"
+            SELECT public_user_id FROM users
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .fetch_one(&*self.db)
+        .await?
+        .public_user_id;
+
         let message_id = Uuid::new_v4().to_string();
 
+        // 使用公开ID作为user_id存储
         sqlx::query!(
             r#"
             INSERT INTO messages (message_id, group_id, user_id, content, created_at)
@@ -54,7 +67,7 @@ impl MessageOperation {
             "#,
             message_id,
             group_id,
-            user_id,
+            user_public_id, // 使用公开ID
             content
         )
         .execute(&*self.db)
@@ -85,7 +98,7 @@ impl MessageOperation {
                     m.content,
                     m.created_at
                 FROM messages m
-                JOIN users u ON m.user_id = u.user_id
+                JOIN users u ON m.user_id = u.public_user_id
                 WHERE m.group_id = $1
                 AND m.created_at < (
                     SELECT created_at FROM messages 
@@ -113,7 +126,7 @@ impl MessageOperation {
                     m.content,
                     m.created_at
                 FROM messages m
-                JOIN users u ON m.user_id = u.user_id
+                JOIN users u ON m.user_id = u.public_user_id
                 WHERE m.group_id = $1
                 ORDER BY m.created_at DESC
                 LIMIT $2
@@ -142,7 +155,7 @@ impl MessageOperation {
                 m.content,
                 m.created_at
             FROM messages m
-            JOIN users u ON m.user_id = u.user_id
+            JOIN users u ON m.user_id = u.public_user_id
             WHERE m.message_id = $1
             "#,
             message_id
@@ -173,7 +186,7 @@ impl MessageOperation {
                 m.content,
                 m.created_at
             FROM messages m
-            JOIN users u ON m.user_id = u.user_id
+            JOIN users u ON m.user_id = u.public_user_id
             WHERE m.group_id = $1
             AND m.created_at > (
                 SELECT created_at FROM messages 
@@ -194,6 +207,18 @@ impl MessageOperation {
 
     /// 删除消息
     pub async fn delete_message(&self, message_id: &str, user_id: &str) -> Result<bool, SqlxError> {
+        // 获取用户的公开ID
+        let user_public_id = sqlx::query!(
+            r#"
+            SELECT public_user_id FROM users
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .fetch_one(&*self.db)
+        .await?
+        .public_user_id;
+        
         // 检查消息是否属于该用户
         let message = sqlx::query!(
             r#"
@@ -209,8 +234,8 @@ impl MessageOperation {
             return Ok(false); // 消息不存在
         };
 
-        // 只有消息发送者才能删除
-        if msg.user_id != user_id {
+        // 只有消息发送者才能删除 - 比较公开ID
+        if msg.user_id != user_public_id {
             return Err(SqlxError::Protocol(
                 "User cannot delete this message".into(),
             ));

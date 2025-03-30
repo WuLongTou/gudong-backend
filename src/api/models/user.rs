@@ -4,14 +4,13 @@ use serde::{Deserialize, Serialize};
 /// 用户基本信息
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserProfile {
+    /// 用户ID（公开ID，而非真实注册ID，保护用户安全）
     pub user_id: String,
     pub nickname: String,
     pub is_temporary: bool,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub avatar_url: Option<String>,
-    /// 用户公开ID，用于对外展示
-    pub public_user_id: String,
 }
 
 /// 注册新用户请求
@@ -31,11 +30,11 @@ pub struct CreateTemporaryUserRequest {
 /// 用户创建响应
 #[derive(Debug, Serialize)]
 pub struct UserCreationResponse {
+    /// 用户ID（公开ID，而非真实注册ID，保护用户安全）
     pub user_id: String,
     pub nickname: String,
     pub token: String,
     pub expires_at: Option<i64>,
-    pub public_user_id: String,
 }
 
 /// 用户登录请求
@@ -48,11 +47,11 @@ pub struct UserLoginRequest {
 /// 用户登录响应
 #[derive(Debug, Serialize)]
 pub struct UserLoginResponse {
+    /// 用户ID（公开ID，而非真实注册ID，保护用户安全）
     pub user_id: String,
     pub token: String,
     pub nickname: String,
     pub expires_at: Option<i64>,
-    pub public_user_id: String,
 }
 
 /// 更新用户昵称请求
@@ -92,8 +91,8 @@ pub struct RefreshAuthTokenResponse {
 /// 验证认证令牌响应
 #[derive(Debug, Serialize)]
 pub struct VerifyAuthTokenResponse {
+    /// 用户ID（公开ID，而非真实注册ID，保护用户安全）
     pub user_id: String,
     pub nickname: String,
     pub is_temporary: bool,
-    pub public_user_id: String,
 }

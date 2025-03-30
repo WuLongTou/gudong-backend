@@ -2,9 +2,25 @@
 // 包含活动相关的数据库操作
 
 use crate::database::models::activity::{ActivityEntity, NearbyUserActivity};
-use sqlx::{Error as SqlxError, PgPool};
+use sqlx::{Error as SqlxError, PgPool, FromRow};
 use std::sync::Arc;
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
+
+/// 带距离的活动实体，用于 SQL 查询
+#[derive(Debug, FromRow)]
+pub struct ActivityEntityWithDistance {
+    pub id: String,
+    pub activity_type: i32,
+    pub user_id: String,
+    pub group_id: Option<String>,
+    pub content: Option<String>,
+    pub description: String,
+    pub longitude: f64,
+    pub latitude: f64,
+    pub created_at: DateTime<Utc>,
+    pub distance: Option<f64>,
+}
 
 /// 活动存储库，处理所有与活动相关的数据库操作
 pub struct ActivityOperation {
@@ -99,6 +115,94 @@ impl ActivityOperation {
         )
         .fetch_all(&*self.db)
         .await?;
+
+        // 转换为ActivityEntity结构
+        let entities = activities
+            .into_iter()
+            .map(|a| ActivityEntity {
+                id: a.id,
+                activity_type: a.activity_type,
+                user_id: a.user_id,
+                group_id: a.group_id,
+                content: a.content,
+                description: a.description,
+                longitude: a.longitude,
+                latitude: a.latitude,
+                created_at: a.created_at,
+            })
+            .collect();
+
+        Ok(entities)
+    }
+
+    /// 按类型查找附近活动
+    pub async fn find_nearby_activities_by_type(
+        &self,
+        latitude: f64,
+        longitude: f64,
+        radius: f64,
+        limit: i64,
+        activity_types: &[&str],
+    ) -> Result<Vec<ActivityEntity>, SqlxError> {
+        let actual_limit = if limit <= 0 { 20 } else { limit };
+
+        // 构建查询条件，按活动类型过滤
+        let types_condition = if activity_types.is_empty() {
+            "".to_string()
+        } else {
+            let types = activity_types
+                .iter()
+                .map(|t| format!("'{}'", t))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("AND a.activity_type IN ({})", types)
+        };
+
+        // 动态构建SQL查询
+        let query = format!(
+            r#"
+            SELECT 
+                a.activity_id as "id",
+                CASE 
+                    WHEN a.activity_type = 'USER_CHECKIN' THEN 2
+                    WHEN a.activity_type = 'GROUP_CREATE' THEN 10
+                    WHEN a.activity_type = 'USER_JOINED' THEN 11
+                    WHEN a.activity_type = 'MESSAGE_SENT' THEN 20
+                    ELSE 1
+                END as "activity_type",
+                a.user_id as "user_id",
+                NULL as "group_id",
+                a.activity_details as "content",
+                COALESCE(a.activity_details, a.activity_type) as "description",
+                a.longitude as "longitude",
+                a.latitude as "latitude",
+                a.created_at as "created_at",
+                -- 使用PostGIS计算精确的球面距离（米）
+                ST_Distance(
+                    ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                ) as "distance"
+            FROM user_activities a
+            WHERE ST_DWithin(
+                ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)::geography,
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                $3
+            )
+            {}
+            ORDER BY a.created_at DESC
+            LIMIT $4
+            "#,
+            types_condition
+        );
+
+        // 执行动态SQL查询
+        let activities = sqlx::query_as::<_, ActivityEntityWithDistance>(&query)
+            .bind(latitude)
+            .bind(longitude)
+            .bind(radius)
+            .bind(actual_limit)
+            .fetch_all(&*self.db)
+            .await?;
 
         // 转换为ActivityEntity结构
         let entities = activities
