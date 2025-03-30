@@ -45,4 +45,29 @@ pub struct GroupMemberEntity {
     pub joined_at: DateTime<Utc>,
     /// 最后活跃时间
     pub last_active: Option<DateTime<Utc>>,
-} 
+}
+
+/// 带有详细信息的群组结构
+#[derive(Debug, sqlx::FromRow)]
+pub struct GroupWithDetails {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub creator_id: String,
+    pub creator_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub location_name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_active_at: chrono::DateTime<chrono::Utc>,
+    pub member_count: i64,
+    pub creator_public_id: Option<String>,
+}
+
+/// 创建者基本信息
+#[derive(Debug)]
+pub struct CreatorInfo {
+    pub nickname: String,
+    pub public_user_id: String,
+}

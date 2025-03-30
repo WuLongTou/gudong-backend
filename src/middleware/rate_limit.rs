@@ -41,7 +41,6 @@ impl RateLimiter {
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ci| ci.0.ip().to_string());
-        tracing::info!("remote_ip: {:?}", remote_ip);
         // 从请求头中获取IP，或者使用连接信息中的IP作为默认值
         let ip = req
             .headers()
@@ -57,7 +56,6 @@ impl RateLimiter {
             .unwrap_or("unknown")
             .trim()
             .to_string();
-        tracing::info!("ip: {:?}", ip);
 
         let key = format!("rate_limit:{}", ip);
         let mut conn = self
@@ -79,6 +77,9 @@ impl RateLimiter {
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
+        tracing::info!(
+            "client ip: {remote_ip:?} , resolved real ip: {ip:?}, request count: {count}"
+        );
 
         if count > self.config.rate_limit_requests as i32 {
             return Ok((

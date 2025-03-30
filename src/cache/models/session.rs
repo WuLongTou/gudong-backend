@@ -8,4 +8,4 @@ pub struct CachedSession {
     pub data: Option<String>,
     pub created_at: i64, // Unix timestamp
     pub expires_at: i64, // Unix timestamp
-} 
+}

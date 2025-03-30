@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// 群组数据模型(用于缓存和API交互)
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -80,8 +80,9 @@ impl From<CachedGroup> for Group {
             description: cached.description,
             password_hash: cached.password_hash,
             creator_id: cached.creator_id,
-            created_at: DateTime::from_timestamp(cached.created_at, 0).unwrap_or_else(|| Utc::now()),
+            created_at: DateTime::from_timestamp(cached.created_at, 0)
+                .unwrap_or_else(|| Utc::now()),
             member_count: cached.member_count,
         }
     }
-} 
+}

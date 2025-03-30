@@ -115,7 +115,7 @@ impl GroupCacheOperations {
         }
 
         // 遍历GEO结果，获取群组详情
-        for (group_id, (lon, lat, distance)) in geo_results {
+        for (group_id, (lon, lat, _distance)) in geo_results {
             // 获取群组详情缓存
             let group_key = group_id_key(&group_id);
             let group_json: Option<String> = conn.get(&group_key).await?;

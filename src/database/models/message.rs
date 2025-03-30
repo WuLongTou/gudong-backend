@@ -54,9 +54,19 @@ impl MessageEntity {
             _ => MessageType::Text, // 默认为文本消息
         }
     }
-    
+
     /// 设置消息类型
     pub fn set_message_type(&mut self, message_type: MessageType) {
         self.message_type = message_type as i32;
     }
-} 
+}
+
+/// 带用户昵称的消息实体
+pub struct MessageWithUser {
+    pub message_id: String,
+    pub group_id: String,
+    pub user_id: String,
+    pub nickname: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}

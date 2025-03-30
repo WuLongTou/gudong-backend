@@ -3,11 +3,12 @@ use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tracing;
 use uuid::Uuid;
 
+use crate::api::models::common::ApiResponse;
 use crate::config::Config;
-use crate::api::schema::common::ApiResponse;
 
 pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
     hash(password.as_bytes(), DEFAULT_COST)
@@ -122,3 +123,21 @@ pub mod error_codes {
     pub const RATE_LIMIT: i32 = 1005;
     pub const INTERNAL_ERROR: i32 = 5000;
 }
+
+/// 根据真实用户ID生成公开ID
+///
+/// 使用单向哈希+截断的方法，生成一个不可逆但稳定的公开ID
+/// 这样可以保护用户的真实ID，同时确保同一用户的公开ID在不同请求中保持一致
+pub fn generate_public_id(real_id: &str, salt: &str) -> String {
+    // 将用户ID与盐值拼接后计算哈希
+    let mut hasher = Sha256::new();
+    hasher.update(real_id.as_bytes());
+    hasher.update(salt.as_bytes());
+
+    // 获取哈希结果并转换为十六进制字符串，取前12位
+    let result = format!("{:x}", hasher.finalize());
+    result[..12].to_string()
+}
+
+/// 默认用于生成公开用户ID的盐值
+pub const PUBLIC_USER_ID_SALT: &str = "3a91b3cd4e7f8b2d5c6a8f1e0d9c7b4a";

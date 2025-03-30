@@ -28,7 +28,10 @@ pub fn nearby_users_key(lat: f64, lon: f64, radius: f64, limit: i64) -> String {
     // 精确到小数点后两位的坐标
     let lat_rounded = (lat * 100.0).round() / 100.0;
     let lon_rounded = (lon * 100.0).round() / 100.0;
-    format!("{}{}:{}:{}:{}", USER_LOCATION_PREFIX, lat_rounded, lon_rounded, radius, limit)
+    format!(
+        "{}{}:{}:{}:{}",
+        USER_LOCATION_PREFIX, lat_rounded, lon_rounded, radius, limit
+    )
 }
 
 /// 生成附近活动缓存键
@@ -36,10 +39,13 @@ pub fn nearby_activities_key(lat: f64, lon: f64, radius: f64, limit: i64) -> Str
     // 精确到小数点后两位的坐标
     let lat_rounded = (lat * 100.0).round() / 100.0;
     let lon_rounded = (lon * 100.0).round() / 100.0;
-    format!("{}{}:{}:{}:{}", ACTIVITY_PREFIX, lat_rounded, lon_rounded, radius, limit)
+    format!(
+        "{}{}:{}:{}:{}",
+        ACTIVITY_PREFIX, lat_rounded, lon_rounded, radius, limit
+    )
 }
 
 /// 生成用户活动历史缓存键
 pub fn user_activities_key(user_id: &str) -> String {
     format!("{}{}", USER_ACTIVITIES_PREFIX, user_id)
-} 
+}

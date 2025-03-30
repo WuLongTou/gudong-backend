@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// 附近用户数据模型(用于缓存和API交互)
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -77,7 +77,8 @@ impl From<CachedNearbyUser> for NearbyUser {
         Self {
             user_id: cached.user_id,
             nickname: cached.nickname,
-            last_active: DateTime::from_timestamp(cached.last_active, 0).unwrap_or_else(|| Utc::now()),
+            last_active: DateTime::from_timestamp(cached.last_active, 0)
+                .unwrap_or_else(|| Utc::now()),
             latitude: cached.latitude,
             longitude: cached.longitude,
             distance: cached.distance,
@@ -114,9 +115,10 @@ impl From<CachedUserActivity> for UserActivity {
             activity_details: cached.activity_details,
             latitude: cached.latitude,
             longitude: cached.longitude,
-            created_at: DateTime::from_timestamp(cached.created_at, 0).unwrap_or_else(|| Utc::now()),
+            created_at: DateTime::from_timestamp(cached.created_at, 0)
+                .unwrap_or_else(|| Utc::now()),
             distance: cached.distance,
             avatar: cached.avatar,
         }
     }
-} 
+}

@@ -6,4 +6,4 @@ pub struct CachedToken {
     pub token: String,
     pub user_id: String,
     pub expires_at: i64, // Unix timestamp
-} 
+}

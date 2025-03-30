@@ -7,17 +7,22 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    api::models::user::{
+        CreateTemporaryUserRequest, RefreshAuthTokenResponse as RefreshTokenResponse,
+        RegisterUserRequest as CreateRegisteredUserRequest, ResetPasswordResponse,
+        ResetProfilePasswordRequest as ResetPasswordRequest,
+        UpdateProfileNicknameRequest as UpdateNicknameRequest,
+        UpdateProfilePasswordRequest as UpdatePasswordRequest,
+        UserCreationResponse as CreateUserResponse, UserLoginRequest as LoginRequest,
+        UserLoginResponse as LoginResponse, UserProfile as UserInfo,
+        VerifyAuthTokenResponse as CheckTokenResponse,
+    },
+    cache::operations::user::UserCacheOperations,
+    database::operations::user::UserOperation,
     utils::{
         Claims, error_codes, error_to_api_response, generate_temp_token, generate_token,
         success_to_api_response, verify_password,
     },
-    api::schema::user::{
-        CreateRegisteredUserRequest, CreateTemporaryUserRequest, CreateUserResponse,
-        LoginRequest, LoginResponse, ResetPasswordRequest, ResetPasswordResponse,
-        UpdateNicknameRequest, UpdatePasswordRequest, RefreshTokenResponse, CheckTokenResponse, UserInfo
-    },
-    database::repositories::user::UserRepository,
-    cache::operations::user::UserCacheOperations,
 };
 
 /// 注册新用户
@@ -38,12 +43,14 @@ pub async fn register(
     }
 
     // 创建用户
-    match UserRepository::create_registered_user(
-        &state.pool, 
-        &req.user_id, 
-        &req.nickname, 
-        &req.password
-    ).await {
+    match UserOperation::create_registered_user(
+        &state.pool,
+        &req.user_id,
+        &req.nickname,
+        &req.password,
+    )
+    .await
+    {
         Ok(user) => {
             // 缓存用户信息
             if let Err(e) = UserCacheOperations::cache_user(&state.redis, &user).await {
@@ -59,6 +66,7 @@ pub async fn register(
                         nickname: user.nickname.clone(),
                         token,
                         expires_at: Some(expires_at),
+                        public_user_id: user.public_user_id.clone(),
                     }),
                 ),
                 Err(_) => (
@@ -91,10 +99,12 @@ pub async fn create_temporary(
 ) -> impl IntoResponse {
     // 生成随机用户ID和昵称
     let user_id = Uuid::new_v4().to_string();
-    let nickname = req.nickname.unwrap_or_else(|| format!("用户{}", &user_id[0..6]));
+    let nickname = req
+        .nickname
+        .unwrap_or_else(|| format!("用户{}", &user_id[0..6]));
 
     // 创建临时用户
-    match UserRepository::create_temporary_user(&state.pool, &user_id, &nickname).await {
+    match UserOperation::create_temporary_user(&state.pool, &user_id, &nickname).await {
         Ok(user) => {
             // 缓存用户信息
             if let Err(e) = UserCacheOperations::cache_user(&state.redis, &user).await {
@@ -110,11 +120,15 @@ pub async fn create_temporary(
                         nickname: user.nickname.clone(),
                         token,
                         expires_at: Some(expires_at),
+                        public_user_id: user.public_user_id.clone(),
                     }),
                 ),
                 Err(_) => (
                     StatusCode::OK,
-                    error_to_api_response(error_codes::INTERNAL_ERROR, "生成临时令牌失败".to_string()),
+                    error_to_api_response(
+                        error_codes::INTERNAL_ERROR,
+                        "生成临时令牌失败".to_string(),
+                    ),
                 ),
             }
         }
@@ -132,7 +146,8 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> impl IntoResponse {
     // 先尝试从缓存获取用户
-    let user_from_db = match UserCacheOperations::get_cached_user(&state.redis, &req.user_id).await {
+    let user_from_db = match UserCacheOperations::get_cached_user(&state.redis, &req.user_id).await
+    {
         Ok(Some(cached_user)) => {
             // 临时用户不能使用密码登录
             if cached_user.is_temporary {
@@ -144,9 +159,9 @@ pub async fn login(
                     ),
                 );
             }
-            
+
             // 缓存中没有密码信息，需要从数据库获取
-            match UserRepository::find_by_id(&state.pool, &req.user_id).await {
+            match UserOperation::find_by_id(&state.pool, &req.user_id).await {
                 Ok(Some(user)) => user,
                 Ok(None) => {
                     return (
@@ -157,14 +172,17 @@ pub async fn login(
                 Err(_) => {
                     return (
                         StatusCode::OK,
-                        error_to_api_response(error_codes::INTERNAL_ERROR, "数据库错误".to_string()),
+                        error_to_api_response(
+                            error_codes::INTERNAL_ERROR,
+                            "数据库错误".to_string(),
+                        ),
                     );
                 }
             }
         }
         Ok(None) | Err(_) => {
             // 缓存中没有，从数据库获取
-            match UserRepository::find_by_id(&state.pool, &req.user_id).await {
+            match UserOperation::find_by_id(&state.pool, &req.user_id).await {
                 Ok(Some(user)) => user,
                 Ok(None) => {
                     return (
@@ -175,7 +193,10 @@ pub async fn login(
                 Err(_) => {
                     return (
                         StatusCode::OK,
-                        error_to_api_response(error_codes::INTERNAL_ERROR, "数据库错误".to_string()),
+                        error_to_api_response(
+                            error_codes::INTERNAL_ERROR,
+                            "数据库错误".to_string(),
+                        ),
                     );
                 }
             }
@@ -215,7 +236,9 @@ pub async fn login(
     }
 
     // 更新用户状态为在线
-    if let Err(e) = UserCacheOperations::update_user_status(&state.redis, &req.user_id, true, None).await {
+    if let Err(e) =
+        UserCacheOperations::update_user_status(&state.redis, &req.user_id, true, None).await
+    {
         tracing::warn!("Failed to update user status: {}", e);
     }
 
@@ -228,6 +251,7 @@ pub async fn login(
                 nickname: user_from_db.nickname,
                 token,
                 expires_at: Some(expires_at),
+                public_user_id: user_from_db.public_user_id,
             }),
         ),
         Err(_) => (
@@ -256,7 +280,7 @@ pub async fn update_nickname(
     }
 
     // 更新昵称
-    match UserRepository::update_nickname(&state.pool, &claims.sub, &req.nickname).await {
+    match UserOperation::update_nickname(&state.pool, &claims.sub, &req.nickname).await {
         Ok(user) => {
             // 更新缓存
             if let Err(e) = UserCacheOperations::cache_user(&state.redis, &user).await {
@@ -272,6 +296,7 @@ pub async fn update_nickname(
                     created_at: Some(user.created_at),
                     updated_at: None,
                     avatar_url: None,
+                    public_user_id: user.public_user_id,
                 }),
             )
         }
@@ -290,7 +315,7 @@ pub async fn update_password(
     Json(req): Json<UpdatePasswordRequest>,
 ) -> impl IntoResponse {
     // 从数据库获取用户信息
-    let user = match UserRepository::find_by_id(&state.pool, &claims.sub).await {
+    let user = match UserOperation::find_by_id(&state.pool, &claims.sub).await {
         Ok(Some(user)) => user,
         Ok(None) => {
             return (
@@ -322,14 +347,16 @@ pub async fn update_password(
         match verify_password(&req.old_password, &password_hash) {
             Ok(true) => {
                 // 更新密码
-                match UserRepository::update_password(&state.pool, &claims.sub, &req.new_password).await {
-                    Ok(_) => (
-                        StatusCode::OK,
-                        success_to_api_response(true),
-                    ),
+                match UserOperation::update_password(&state.pool, &claims.sub, &req.new_password)
+                    .await
+                {
+                    Ok(_) => (StatusCode::OK, success_to_api_response(true)),
                     Err(_) => (
                         StatusCode::OK,
-                        error_to_api_response(error_codes::INTERNAL_ERROR, "更新密码失败".to_string()),
+                        error_to_api_response(
+                            error_codes::INTERNAL_ERROR,
+                            "更新密码失败".to_string(),
+                        ),
                     ),
                 }
             }
@@ -355,7 +382,7 @@ pub async fn reset_password(
     Json(req): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
     // 从数据库获取用户信息
-    let user = match UserRepository::find_by_id(&state.pool, &req.user_id).await {
+    let user = match UserOperation::find_by_id(&state.pool, &req.user_id).await {
         Ok(Some(user)) => user,
         Ok(None) => {
             return (
@@ -391,7 +418,7 @@ pub async fn reset_password(
     }
 
     // 更新密码
-    match UserRepository::update_password(&state.pool, &req.user_id, &req.new_password).await {
+    match UserOperation::update_password(&state.pool, &req.user_id, &req.new_password).await {
         Ok(_) => (
             StatusCode::OK,
             success_to_api_response(ResetPasswordResponse { success: true }),
@@ -410,7 +437,7 @@ pub async fn refresh_token(
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     // 检查用户是否存在
-    match UserRepository::find_by_id(&state.pool, &claims.sub).await {
+    match UserOperation::find_by_id(&state.pool, &claims.sub).await {
         Ok(Some(user)) => {
             // 生成新令牌
             if user.is_temporary {
@@ -424,7 +451,10 @@ pub async fn refresh_token(
                     ),
                     Err(_) => (
                         StatusCode::OK,
-                        error_to_api_response(error_codes::INTERNAL_ERROR, "生成临时令牌失败".to_string()),
+                        error_to_api_response(
+                            error_codes::INTERNAL_ERROR,
+                            "生成临时令牌失败".to_string(),
+                        ),
                     ),
                 }
             } else {
@@ -438,7 +468,10 @@ pub async fn refresh_token(
                     ),
                     Err(_) => (
                         StatusCode::OK,
-                        error_to_api_response(error_codes::INTERNAL_ERROR, "生成令牌失败".to_string()),
+                        error_to_api_response(
+                            error_codes::INTERNAL_ERROR,
+                            "生成令牌失败".to_string(),
+                        ),
                     ),
                 }
             }
@@ -460,26 +493,113 @@ pub async fn check_token(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
-    // 检查用户是否存在
-    match UserRepository::find_by_id(&state.pool, &claims.sub).await {
-        Ok(Some(user)) => {
-            // 返回用户信息
-            (
-                StatusCode::OK,
-                success_to_api_response(CheckTokenResponse {
-                    user_id: user.user_id,
-                    nickname: user.nickname,
-                    is_temporary: user.is_temporary,
-                }),
-            )
+    // 先从缓存获取用户信息
+    let user_from_cache = UserCacheOperations::get_cached_user(&state.redis, &claims.sub).await;
+
+    match user_from_cache {
+        Ok(Some(user)) => (
+            StatusCode::OK,
+            success_to_api_response(CheckTokenResponse {
+                user_id: user.user_id,
+                nickname: user.nickname,
+                is_temporary: user.is_temporary,
+                public_user_id: user.public_user_id,
+            }),
+        ),
+        _ => {
+            // 缓存中没有，从数据库查询
+            match UserOperation::find_by_id(&state.pool, &claims.sub).await {
+                Ok(Some(user)) => {
+                    // 更新缓存
+                    if let Err(e) = UserCacheOperations::cache_user(&state.redis, &user).await {
+                        tracing::warn!("Failed to cache user after token check: {}", e);
+                    }
+
+                    (
+                        StatusCode::OK,
+                        success_to_api_response(CheckTokenResponse {
+                            user_id: user.user_id,
+                            nickname: user.nickname,
+                            is_temporary: user.is_temporary,
+                            public_user_id: user.public_user_id,
+                        }),
+                    )
+                }
+                Ok(None) => (
+                    StatusCode::OK,
+                    error_to_api_response(error_codes::NOT_FOUND, "用户不存在".to_string()),
+                ),
+                Err(_) => (
+                    StatusCode::OK,
+                    error_to_api_response(error_codes::INTERNAL_ERROR, "数据库错误".to_string()),
+                ),
+            }
         }
-        Ok(None) => (
-            StatusCode::OK,
-            error_to_api_response(error_codes::NOT_FOUND, "用户不存在".to_string()),
-        ),
-        Err(_) => (
-            StatusCode::OK,
-            error_to_api_response(error_codes::INTERNAL_ERROR, "数据库错误".to_string()),
-        ),
     }
-} 
+}
+
+/// 获取当前用户信息
+pub async fn get_current_user(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> impl IntoResponse {
+    let user_id = &claims.sub;
+    tracing::debug!("获取当前用户 {} 的信息", user_id);
+
+    // 先从缓存查询
+    let user_from_cache = UserCacheOperations::get_cached_user(&state.redis, user_id).await;
+    match user_from_cache {
+        Ok(Some(user)) => (
+            StatusCode::OK,
+            success_to_api_response(UserInfo {
+                user_id: user.user_id,
+                nickname: user.nickname,
+                is_temporary: user.is_temporary,
+                created_at: Some(
+                    chrono::DateTime::from_timestamp(user.created_at, 0).unwrap_or_default(),
+                ),
+                updated_at: None,
+                avatar_url: None,
+                public_user_id: user.public_user_id,
+            }),
+        ),
+        _ => {
+            // 缓存中没有，从数据库查询
+            match UserOperation::find_by_id(&state.pool, user_id).await {
+                Ok(Some(user)) => {
+                    // 更新缓存
+                    if let Err(e) = UserCacheOperations::cache_user(&state.redis, &user).await {
+                        tracing::warn!("Failed to cache user after fetching: {}", e);
+                    }
+
+                    (
+                        StatusCode::OK,
+                        success_to_api_response(UserInfo {
+                            user_id: user.user_id,
+                            nickname: user.nickname,
+                            is_temporary: user.is_temporary,
+                            created_at: Some(user.created_at),
+                            updated_at: None,
+                            avatar_url: None,
+                            public_user_id: user.public_user_id,
+                        }),
+                    )
+                }
+                Ok(None) => (
+                    StatusCode::OK,
+                    error_to_api_response::<UserInfo>(
+                        error_codes::NOT_FOUND,
+                        "用户不存在".to_string(),
+                    ),
+                ),
+                Err(e) => (
+                    StatusCode::OK,
+                    error_to_api_response::<UserInfo>(
+                        error_codes::INTERNAL_ERROR,
+                        format!("数据库错误: {}", e),
+                    ),
+                ),
+            }
+        }
+    }
+}

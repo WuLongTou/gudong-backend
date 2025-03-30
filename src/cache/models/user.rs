@@ -7,6 +7,8 @@ pub struct CachedUser {
     pub nickname: String,
     pub is_temporary: bool,
     pub created_at: i64, // Unix timestamp
+    /// 用户公开ID，用于对外展示
+    pub public_user_id: String,
 }
 
 /// 用户在线状态缓存
@@ -24,4 +26,4 @@ pub struct CachedUserLocation {
     pub latitude: f64,
     pub longitude: f64,
     pub update_time: i64, // Unix timestamp
-} 
+}

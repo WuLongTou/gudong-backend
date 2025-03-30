@@ -2,12 +2,12 @@
 // 处理消息相关的API请求
 
 use crate::AppState;
-use crate::api::schema::message::*;
-use crate::database::repositories::message::MessageRepository;
+use crate::api::models::message::*;
+use crate::database::operations::message::MessageOperation;
 use crate::utils::Claims;
 use crate::utils::{error_codes, error_to_api_response, success_to_api_response};
 use axum::{
-    extract::{Extension, Json, Path, State},
+    extract::{Extension, Json, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -28,13 +28,13 @@ pub async fn send_message(
     );
 
     // 创建消息仓库实例
-    let repo = MessageRepository::new(Arc::new(state.pool.clone()));
+    let db_operation = MessageOperation::new(Arc::new(state.pool.clone()));
 
     // 从认证信息中获取用户ID
     let user_id = &claims.sub;
 
     // 发送消息
-    match repo
+    match db_operation
         .save_message(&payload.group_id, user_id, &payload.content)
         .await
     {
@@ -90,17 +90,14 @@ pub async fn send_message(
 pub async fn get_message_history(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(params): Json<GetMessageHistoryRequest>,
+    Path(group_id): Path<String>,
+    Query(params): Query<GetMessageHistoryPageParams>,
 ) -> impl IntoResponse {
     let user_id = &claims.sub;
-    tracing::debug!(
-        "用户 {} 正在获取群组 {} 的消息历史",
-        user_id,
-        params.group_id
-    );
+    tracing::debug!("用户 {} 正在获取群组 {} 的消息历史", user_id, group_id);
 
     // 创建消息仓库实例
-    let repo = MessageRepository::new(Arc::new(state.pool.clone()));
+    let db_operation = MessageOperation::new(Arc::new(state.pool.clone()));
 
     // 先检查用户是否是群组成员
     let is_member_result = sqlx::query!(
@@ -110,7 +107,7 @@ pub async fn get_message_history(
             WHERE group_id = $1 AND user_id = $2
         ) as "exists!"
         "#,
-        params.group_id,
+        group_id,
         user_id
     )
     .fetch_one(&state.pool)
@@ -120,7 +117,7 @@ pub async fn get_message_history(
         tracing::error!(
             "检查用户 {} 是否为群组 {} 成员时出错: {}",
             user_id,
-            params.group_id,
+            group_id,
             err
         );
         return (
@@ -138,7 +135,7 @@ pub async fn get_message_history(
         tracing::warn!(
             "用户 {} 尝试获取群组 {} 消息但不是群组成员",
             user_id,
-            params.group_id
+            group_id
         );
         return (
             StatusCode::OK,
@@ -150,19 +147,15 @@ pub async fn get_message_history(
     }
 
     // 获取消息历史
-    match repo
-        .get_group_messages(
-            &params.group_id,
-            params.limit as i64,
-            params.cursor.as_deref(),
-        )
+    match db_operation
+        .get_group_messages(&group_id, params.limit as i64, params.cursor.as_deref())
         .await
     {
         Ok(messages) => {
             tracing::debug!(
                 "用户 {} 成功获取群组 {} 的 {} 条消息",
                 user_id,
-                params.group_id,
+                group_id,
                 messages.len()
             );
 
@@ -202,12 +195,7 @@ pub async fn get_message_history(
             )
         }
         Err(e) => {
-            tracing::error!(
-                "用户 {} 获取群组 {} 消息失败: {}",
-                user_id,
-                params.group_id,
-                e
-            );
+            tracing::error!("用户 {} 获取群组 {} 消息失败: {}", user_id, group_id, e);
             (
                 StatusCode::OK,
                 error_to_api_response::<GetMessageHistoryResponse>(
@@ -229,10 +217,10 @@ pub async fn delete_message(
     tracing::debug!("用户 {} 正在尝试删除消息 {}", user_id, message_id);
 
     // 创建消息仓库实例
-    let repo = MessageRepository::new(Arc::new(state.pool.clone()));
+    let db_operation = MessageOperation::new(Arc::new(state.pool.clone()));
 
     // 删除消息
-    match repo.delete_message(&message_id, user_id).await {
+    match db_operation.delete_message(&message_id, user_id).await {
         Ok(deleted) => {
             if deleted {
                 tracing::info!("用户 {} 成功删除消息 {}", user_id, message_id);
@@ -266,10 +254,4 @@ pub async fn delete_message(
             )
         }
     }
-}
-
-/// 删除消息响应
-#[derive(serde::Serialize)]
-pub struct DeleteMessageResponse {
-    pub success: bool,
 }

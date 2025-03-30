@@ -1,44 +1,33 @@
 // 活动存储库
 // 包含活动相关的数据库操作
 
-use crate::database::entities::activity::ActivityEntity;
-use sqlx::{PgPool, Error as SqlxError};
+use crate::database::models::activity::{ActivityEntity, NearbyUserActivity};
+use sqlx::{Error as SqlxError, PgPool};
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// 近期用户活动信息
-pub struct NearbyUserActivity {
-    pub user_id: String,
-    pub nickname: String,
-    pub last_activity_id: Option<String>,
-    pub last_activity_type: Option<String>,
-    pub last_activity_description: Option<String>,
-    pub last_activity_time: Option<chrono::DateTime<chrono::Utc>>,
-    pub distance: Option<f64>,
-}
-
 /// 活动存储库，处理所有与活动相关的数据库操作
-pub struct ActivityRepository {
+pub struct ActivityOperation {
     db: Arc<PgPool>,
 }
 
-impl ActivityRepository {
+impl ActivityOperation {
     /// 创建新的活动存储库实例
     pub fn new(db: Arc<PgPool>) -> Self {
         Self { db }
     }
-    
+
     /// 创建活动
     pub async fn create_activity(
         &self,
         user_id: &str,
-        activity_type: &str, 
+        activity_type: &str,
         activity_details: Option<&str>,
         latitude: f64,
-        longitude: f64
+        longitude: f64,
     ) -> Result<String, SqlxError> {
         let activity_id = Uuid::new_v4().to_string();
-        
+
         // 根据user_activities表的实际结构
         sqlx::query!(
             r#"
@@ -55,25 +44,22 @@ impl ActivityRepository {
         )
         .execute(&*self.db)
         .await?;
-        
+
         Ok(activity_id)
     }
-    
+
     /// 查找附近活动
     pub async fn find_nearby_activities(
-        &self, 
-        latitude: f64, 
+        &self,
+        latitude: f64,
         longitude: f64,
         radius: f64,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<ActivityEntity>, SqlxError> {
         let actual_limit = if limit <= 0 { 20 } else { limit };
-        
-        // 使用近似范围和Haversine公式计算距离
-        let lat_range = radius / 111000.0; // 1度纬度约111km
-        let lon_range = radius / (111000.0 * latitude.to_radians().cos());
-        
-        // 将user_activities表中的数据映射到ActivityEntity
+
+        // 使用PostGIS的ST_DWithin和ST_Distance函数进行精确的地理空间查询
+        // 将经纬度转换为地理坐标点，并使用球面计算距离
         let activities = sqlx::query!(
             r#"
             SELECT 
@@ -92,31 +78,31 @@ impl ActivityRepository {
                 a.longitude as "longitude!",
                 a.latitude as "latitude!",
                 a.created_at as "created_at!",
-                -- 使用Haversine公式计算距离（米）
-                2.0 * 6371000.0 * asin(sqrt(
-                    power(sin(radians(a.latitude - $1::float8) / 2.0), 2.0) + 
-                    cos(radians($1::float8)) * cos(radians(a.latitude)) * 
-                    power(sin(radians(a.longitude - $2::float8) / 2.0), 2.0)
-                )) AS "distance"
+                -- 使用PostGIS计算精确的球面距离（米）
+                ST_Distance(
+                    ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                ) as "distance"
             FROM user_activities a
-            WHERE 
-                a.latitude BETWEEN $1 - $3 AND $1 + $3
-                AND a.longitude BETWEEN $2 - $4 AND $2 + $4
+            WHERE ST_DWithin(
+                ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)::geography,
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                $3
+            )
             ORDER BY a.created_at DESC
-            LIMIT $5
+            LIMIT $4
             "#,
             latitude,
             longitude,
-            lat_range,
-            lon_range,
+            radius,  // 以米为单位的半径
             actual_limit
         )
         .fetch_all(&*self.db)
         .await?;
-        
+
         // 转换为ActivityEntity结构
-        let entities = activities.into_iter()
-            .filter(|a| a.distance.unwrap_or(f64::MAX) <= radius) // 过滤真正在半径内的活动
+        let entities = activities
+            .into_iter()
             .map(|a| ActivityEntity {
                 id: a.id,
                 activity_type: a.activity_type,
@@ -129,18 +115,18 @@ impl ActivityRepository {
                 created_at: a.created_at,
             })
             .collect();
-        
+
         Ok(entities)
     }
-    
+
     /// 获取用户活动
     pub async fn find_user_activities(
         &self,
         user_id: &str,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<ActivityEntity>, SqlxError> {
         let actual_limit = if limit <= 0 { 20 } else { limit };
-        
+
         // 查询用户的活动记录
         let activities = sqlx::query!(
             r#"
@@ -170,9 +156,10 @@ impl ActivityRepository {
         )
         .fetch_all(&*self.db)
         .await?;
-        
+
         // 转换为ActivityEntity结构
-        let entities = activities.into_iter()
+        let entities = activities
+            .into_iter()
             .map(|a| ActivityEntity {
                 id: a.id,
                 activity_type: a.activity_type,
@@ -185,18 +172,18 @@ impl ActivityRepository {
                 created_at: a.created_at,
             })
             .collect();
-        
+
         Ok(entities)
     }
-    
+
     /// 获取群组活动
     pub async fn find_group_activities(
         &self,
         group_id: &str,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<ActivityEntity>, SqlxError> {
         let actual_limit = if limit <= 0 { 20 } else { limit };
-        
+
         // 查询与群组相关的活动
         // 注意：user_activities表中没有直接的group_id字段
         // 但我们可以查询group相关的活动类型
@@ -230,9 +217,10 @@ impl ActivityRepository {
         )
         .fetch_all(&*self.db)
         .await?;
-        
+
         // 转换为ActivityEntity结构
-        let entities = activities.into_iter()
+        let entities = activities
+            .into_iter()
             .map(|a| ActivityEntity {
                 id: a.id,
                 activity_type: a.activity_type,
@@ -245,25 +233,21 @@ impl ActivityRepository {
                 created_at: a.created_at,
             })
             .collect();
-        
+
         Ok(entities)
     }
-    
+
     /// 查找附近用户
     pub async fn find_nearby_users(
         &self,
         latitude: f64,
         longitude: f64,
         radius: f64,
-        limit: i64
+        limit: i64,
     ) -> Result<Vec<NearbyUserActivity>, SqlxError> {
         let actual_limit = if limit <= 0 { 20 } else { limit };
-        
-        // 使用近似范围和Haversine公式计算距离
-        let lat_range = radius / 111000.0; // 1度纬度约111km
-        let lon_range = radius / (111000.0 * latitude.to_radians().cos());
-        
-        // 查询附近的用户活动
+
+        // 使用PostGIS进行精确的地理空间查询
         let nearby_users = sqlx::query!(
             r#"
             WITH recent_activities AS (
@@ -287,32 +271,32 @@ impl ActivityRepository {
                 ra.created_at as last_activity_time,
                 ra.latitude,
                 ra.longitude,
-                -- 使用Haversine公式计算距离（米）
-                2.0 * 6371000.0 * asin(sqrt(
-                    power(sin(radians(ra.latitude - $1::float8) / 2.0), 2.0) + 
-                    cos(radians($1::float8)) * cos(radians(ra.latitude)) * 
-                    power(sin(radians(ra.longitude - $2::float8) / 2.0), 2.0)
-                )) AS distance
+                -- 使用PostGIS计算精确的球面距离（米）
+                ST_Distance(
+                    ST_SetSRID(ST_MakePoint(ra.longitude, ra.latitude), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+                ) AS distance
             FROM users u
             JOIN recent_activities ra ON u.user_id = ra.user_id
-            WHERE 
-                ra.latitude BETWEEN $1 - $3 AND $1 + $3
-                AND ra.longitude BETWEEN $2 - $4 AND $2 + $4
+            WHERE ST_DWithin(
+                ST_SetSRID(ST_MakePoint(ra.longitude, ra.latitude), 4326)::geography,
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                $3
+            )
             ORDER BY distance
-            LIMIT $5
+            LIMIT $4
             "#,
             latitude,
             longitude,
-            lat_range,
-            lon_range,
+            radius,  // 以米为单位的半径
             actual_limit
         )
         .fetch_all(&*self.db)
         .await?;
-        
-        // 转换为NearbyUserActivity结构并过滤真正在范围内的用户
-        let result = nearby_users.into_iter()
-            .filter(|u| u.distance.unwrap_or(f64::MAX) <= radius)
+
+        // 转换为NearbyUserActivity结构
+        let result = nearby_users
+            .into_iter()
             .map(|u| NearbyUserActivity {
                 user_id: u.user_id,
                 nickname: u.nickname,
@@ -323,10 +307,10 @@ impl ActivityRepository {
                 distance: u.distance,
             })
             .collect();
-        
+
         Ok(result)
     }
-    
+
     /// 删除活动
     pub async fn delete_activity(&self, activity_id: &str) -> Result<bool, SqlxError> {
         let result = sqlx::query!(
@@ -338,7 +322,7 @@ impl ActivityRepository {
         )
         .execute(&*self.db)
         .await?;
-        
+
         Ok(result.rows_affected() > 0)
     }
-} 
+}

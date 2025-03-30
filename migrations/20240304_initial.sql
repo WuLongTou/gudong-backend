@@ -5,6 +5,7 @@ CREATE TABLE users (
     password_hash TEXT,
     recovery_code TEXT,
     is_temporary BOOLEAN NOT NULL DEFAULT false,
+    public_user_id VARCHAR(255) NOT NULL UNIQUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 

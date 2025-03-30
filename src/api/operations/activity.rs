@@ -2,8 +2,8 @@
 // 处理活动相关的API请求
 
 use crate::AppState;
-use crate::api::schema::activity::*;
-use crate::database::repositories::activity::ActivityRepository;
+use crate::api::models::activity::*;
+use crate::database::operations::activity::ActivityOperation;
 use crate::utils::Claims;
 use crate::utils::{error_codes, error_to_api_response, success_to_api_response};
 use axum::{
@@ -50,7 +50,7 @@ pub async fn get_nearby_activities(
     }
 
     // 创建活动存储库实例
-    let repo = Arc::new(ActivityRepository::new(Arc::new(state.pool.clone())));
+    let repo = Arc::new(ActivityOperation::new(Arc::new(state.pool.clone())));
 
     // 从数据库获取附近活动
     match repo
@@ -114,26 +114,6 @@ pub async fn get_nearby_activities(
     }
 }
 
-/// 创建用户活动请求
-#[derive(serde::Deserialize)]
-pub struct CreateUserActivityRequest {
-    /// 活动类型
-    pub activity_type: ActivityType,
-    /// 活动描述
-    pub description: Option<String>,
-    /// 纬度
-    pub latitude: f64,
-    /// 经度
-    pub longitude: f64,
-}
-
-/// 创建用户活动响应
-#[derive(serde::Serialize)]
-pub struct CreateUserActivityResponse {
-    /// 活动ID
-    pub activity_id: String,
-}
-
 /// 创建用户活动
 pub async fn create_user_activity(
     State(state): State<AppState>,
@@ -165,7 +145,7 @@ pub async fn create_user_activity(
     }
 
     // 创建活动存储库实例
-    let repo = Arc::new(ActivityRepository::new(Arc::new(state.pool.clone())));
+    let repo = Arc::new(ActivityOperation::new(Arc::new(state.pool.clone())));
 
     // 将枚举转换为字符串
     let activity_type_str = match payload.activity_type {
@@ -208,160 +188,6 @@ pub async fn create_user_activity(
     }
 }
 
-/// 查找附近用户请求
-#[derive(serde::Deserialize)]
-pub struct FindNearbyUsersRequest {
-    /// 纬度
-    pub latitude: f64,
-    /// 经度
-    pub longitude: f64,
-    /// 搜索半径（米）
-    pub radius: u32,
-    /// 用户数量限制
-    pub limit: u32,
-}
-
-/// 用户活动信息
-#[derive(serde::Serialize)]
-pub struct UserActivity {
-    /// 活动ID
-    pub id: String,
-    /// 活动类型
-    pub activity_type: ActivityType,
-    /// 活动描述
-    pub description: String,
-    /// 发生时间
-    pub occurred_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// 附近用户信息
-#[derive(serde::Serialize)]
-pub struct NearbyUser {
-    /// 用户ID
-    pub user_id: String,
-    /// 用户昵称
-    pub nickname: String,
-    /// 最后一次活动
-    pub last_activity: UserActivity,
-    /// 与查询位置的距离（米）
-    pub distance: Option<f64>,
-}
-
-/// 查找附近用户响应
-#[derive(serde::Serialize)]
-pub struct FindNearbyUsersResponse {
-    /// 用户列表
-    pub users: Vec<NearbyUser>,
-}
-
-/// 查找附近用户
-pub async fn find_nearby_users(
-    State(state): State<AppState>,
-    Query(params): Query<FindNearbyUsersRequest>,
-) -> impl IntoResponse {
-    tracing::debug!(
-        "请求获取半径 {}m 内的附近用户，坐标: ({}, {})",
-        params.radius,
-        params.latitude,
-        params.longitude
-    );
-
-    // 验证坐标是否合法
-    if params.latitude < -90.0
-        || params.latitude > 90.0
-        || params.longitude < -180.0
-        || params.longitude > 180.0
-    {
-        tracing::warn!(
-            "非法的地理坐标: 经度={}, 纬度={}",
-            params.longitude,
-            params.latitude
-        );
-        return (
-            StatusCode::OK,
-            error_to_api_response::<FindNearbyUsersResponse>(
-                error_codes::VALIDATION_ERROR,
-                "非法的地理坐标".to_string(),
-            ),
-        );
-    }
-
-    // 限制搜索半径
-    let radius = params.radius as f64;
-    let radius = radius.min(state.config.max_search_radius);
-
-    // 创建活动存储库实例
-    let repo = Arc::new(ActivityRepository::new(Arc::new(state.pool.clone())));
-
-    // 查询附近用户
-    match repo
-        .find_nearby_users(
-            params.latitude,
-            params.longitude,
-            radius,
-            params.limit as i64,
-        )
-        .await
-    {
-        Ok(nearby_users) => {
-            // 转换为API响应格式
-            let result: Vec<NearbyUser> = nearby_users
-                .into_iter()
-                .map(|user| NearbyUser {
-                    user_id: user.user_id,
-                    nickname: user.nickname,
-                    last_activity: UserActivity {
-                        id: user.last_activity_id.unwrap_or_default(),
-                        activity_type: match user.last_activity_type.as_deref().unwrap_or("") {
-                            "USER_CHECKIN" => ActivityType::UserCheckedIn,
-                            "GROUP_CREATE" => ActivityType::GroupCreated,
-                            "USER_JOINED" => ActivityType::UserJoined,
-                            "MESSAGE_SENT" => ActivityType::MessageSent,
-                            _ => ActivityType::UserCheckedIn,
-                        },
-                        description: user.last_activity_description.unwrap_or_default(),
-                        occurred_at: user.last_activity_time.unwrap_or_else(|| chrono::Utc::now()),
-                    },
-                    distance: user.distance,
-                })
-                .collect();
-
-            (
-                StatusCode::OK,
-                success_to_api_response(FindNearbyUsersResponse { users: result }),
-            )
-        }
-        Err(e) => {
-            tracing::error!("查询附近用户失败: {}", e);
-            (
-                StatusCode::OK,
-                error_to_api_response::<FindNearbyUsersResponse>(
-                    error_codes::INTERNAL_ERROR,
-                    format!("查询附近用户失败: {}", e),
-                ),
-            )
-        }
-    }
-}
-
-/// 查找用户活动请求
-#[derive(serde::Deserialize)]
-pub struct FindUserActivitiesRequest {
-    /// 活动数量限制
-    pub limit: u32,
-}
-
-/// 查找用户活动响应
-#[derive(serde::Serialize)]
-pub struct FindUserActivitiesResponse {
-    /// 活动列表
-    pub activities: Vec<ActivityDetail>,
-    /// 下一页游标
-    pub next_cursor: Option<String>,
-    /// 是否还有更多
-    pub has_more: bool,
-}
-
 /// 获取用户活动
 pub async fn find_user_activities(
     State(state): State<AppState>,
@@ -383,7 +209,7 @@ pub async fn find_user_activities(
     );
 
     // 创建活动存储库实例
-    let repo = Arc::new(ActivityRepository::new(Arc::new(state.pool.clone())));
+    let repo = Arc::new(ActivityOperation::new(Arc::new(state.pool.clone())));
 
     // 获取用户活动列表
     match repo
@@ -453,20 +279,6 @@ pub async fn find_user_activities(
     }
 }
 
-/// 查找群组活动请求
-#[derive(serde::Deserialize)]
-pub struct FindGroupActivitiesRequest {
-    /// 活动数量限制
-    pub limit: u32,
-}
-
-/// 查找群组活动响应
-#[derive(serde::Serialize)]
-pub struct FindGroupActivitiesResponse {
-    /// 活动列表
-    pub activities: Vec<ActivityDetail>,
-}
-
 /// 获取群组活动
 pub async fn get_group_activities(
     State(state): State<AppState>,
@@ -474,7 +286,7 @@ pub async fn get_group_activities(
     Query(params): Query<FindGroupActivitiesRequest>,
 ) -> impl IntoResponse {
     // 创建活动仓库实例
-    let activity_repo = ActivityRepository::new(Arc::new(state.pool.clone()));
+    let activity_repo = ActivityOperation::new(Arc::new(state.pool.clone()));
 
     match activity_repo
         .find_group_activities(&group_id, params.limit as i64)
@@ -525,20 +337,6 @@ pub async fn get_group_activities(
     }
 }
 
-/// 获取全部活动请求
-#[derive(serde::Deserialize)]
-pub struct GetAllActivitiesRequest {
-    /// 活动数量限制
-    pub limit: Option<u32>,
-}
-
-/// 获取全部活动响应
-#[derive(serde::Serialize)]
-pub struct GetAllActivitiesResponse {
-    /// 活动列表
-    pub activities: Vec<ActivityDetail>,
-}
-
 /// 获取所有活动（最新活动）
 pub async fn get_all_activities(
     State(state): State<AppState>,
@@ -548,7 +346,7 @@ pub async fn get_all_activities(
     tracing::debug!("请求获取最新的 {} 条活动", limit);
 
     // 创建活动存储库实例
-    let repo = Arc::new(ActivityRepository::new(Arc::new(state.pool.clone())));
+    let repo = Arc::new(ActivityOperation::new(Arc::new(state.pool.clone())));
 
     // 获取最新活动
     match repo
@@ -601,6 +399,98 @@ pub async fn get_all_activities(
                 error_to_api_response::<GetAllActivitiesResponse>(
                     error_codes::INTERNAL_ERROR,
                     format!("获取最新活动失败: {}", e),
+                ),
+            )
+        }
+    }
+}
+
+/// 查找附近用户
+pub async fn find_nearby_users(
+    State(state): State<AppState>,
+    Query(params): Query<FindNearbyUsersRequest>,
+) -> impl IntoResponse {
+    tracing::debug!(
+        "请求获取半径 {}m 内的附近用户，坐标: ({}, {})",
+        params.radius,
+        params.latitude,
+        params.longitude
+    );
+
+    // 验证坐标是否合法
+    if params.latitude < -90.0
+        || params.latitude > 90.0
+        || params.longitude < -180.0
+        || params.longitude > 180.0
+    {
+        tracing::warn!(
+            "非法的地理坐标: 经度={}, 纬度={}",
+            params.longitude,
+            params.latitude
+        );
+        return (
+            StatusCode::OK,
+            error_to_api_response::<FindNearbyUsersResponse>(
+                error_codes::VALIDATION_ERROR,
+                "非法的地理坐标".to_string(),
+            ),
+        );
+    }
+
+    // 限制搜索半径
+    let radius = params.radius as f64;
+    let radius = radius.min(state.config.max_search_radius);
+
+    // 创建活动存储库实例
+    let db_operation = ActivityOperation::new(Arc::new(state.pool.clone()));
+
+    // 查询附近用户
+    match db_operation
+        .find_nearby_users(
+            params.latitude,
+            params.longitude,
+            radius,
+            params.limit as i64,
+        )
+        .await
+    {
+        Ok(nearby_users) => {
+            // 转换为API响应格式
+            let result: Vec<NearbyUser> = nearby_users
+                .into_iter()
+                .map(|user| NearbyUser {
+                    user_id: user.user_id,
+                    nickname: user.nickname,
+                    last_activity: UserActivity {
+                        id: user.last_activity_id.unwrap_or_default(),
+                        activity_type: match user.last_activity_type.as_deref().unwrap_or("") {
+                            "USER_CHECKIN" => ActivityType::UserCheckedIn,
+                            "GROUP_CREATE" => ActivityType::GroupCreated,
+                            "USER_JOINED" => ActivityType::UserJoined,
+                            "MESSAGE_SENT" => ActivityType::MessageSent,
+                            _ => ActivityType::UserCheckedIn,
+                        },
+                        description: user.last_activity_description.unwrap_or_default(),
+                        occurred_at: user
+                            .last_activity_time
+                            .unwrap_or_else(|| chrono::Utc::now()),
+                    },
+                    distance: user.distance,
+                })
+                .collect();
+
+            (
+                StatusCode::OK,
+                success_to_api_response(FindNearbyUsersResponse { users: result }),
+            )
+        }
+        Err(e) => {
+            tracing::error!("查询附近用户失败: {}", e);
+            (
+                StatusCode::OK,
+                error_to_api_response::<FindNearbyUsersResponse>(
+                    error_codes::INTERNAL_ERROR,
+                    format!("查询附近用户失败: {}", e),
                 ),
             )
         }

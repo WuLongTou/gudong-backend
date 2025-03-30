@@ -1,27 +1,17 @@
 // 消息存储库
 // 包含消息相关的数据库操作
 
-use chrono::{DateTime, Utc};
+use crate::database::models::message::MessageWithUser;
 use sqlx::{Error as SqlxError, PgPool};
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// 带用户昵称的消息实体
-pub struct MessageWithUser {
-    pub message_id: String,
-    pub group_id: String,
-    pub user_id: String,
-    pub nickname: String,
-    pub content: String,
-    pub created_at: DateTime<Utc>,
-}
-
 /// 消息存储库，处理所有与消息相关的数据库操作
-pub struct MessageRepository {
+pub struct MessageOperation {
     db: Arc<PgPool>,
 }
 
-impl MessageRepository {
+impl MessageOperation {
     /// 创建新的消息存储库实例
     pub fn new(db: Arc<PgPool>) -> Self {
         Self { db }

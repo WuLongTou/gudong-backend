@@ -1,7 +1,7 @@
 // 活动相关的数据结构定义
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// 活动类型枚举
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -97,6 +97,19 @@ pub struct FindNearbyUsersRequest {
     pub limit: u32,
 }
 
+/// 用户活动信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserActivity {
+    /// 活动ID
+    pub id: String,
+    /// 活动类型
+    pub activity_type: ActivityType,
+    /// 活动描述
+    pub description: String,
+    /// 发生时间
+    pub occurred_at: DateTime<Utc>,
+}
+
 /// 附近用户信息
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NearbyUser {
@@ -104,8 +117,10 @@ pub struct NearbyUser {
     pub user_id: String,
     /// 用户昵称
     pub nickname: String,
-    /// 距离（米）
-    pub distance: f64,
+    /// 最后一次活动
+    pub last_activity: UserActivity,
+    /// 与查询位置的距离（米）
+    pub distance: Option<f64>,
 }
 
 /// 查找附近用户响应
@@ -120,6 +135,8 @@ pub struct FindNearbyUsersResponse {
 pub struct FindUserActivitiesRequest {
     /// 活动数量限制
     pub limit: u32,
+    /// 要查询的用户ID，如果不提供则查询当前认证用户的活动
+    pub user_id: Option<String>,
 }
 
 /// 查找用户活动响应
@@ -159,4 +176,4 @@ pub struct GetAllActivitiesRequest {
 pub struct GetAllActivitiesResponse {
     /// 活动列表
     pub activities: Vec<ActivityDetail>,
-} 
+}

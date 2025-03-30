@@ -1,9 +1,9 @@
 // 消息相关的数据结构定义
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
-/// 消息类型枚举
+/// 消息类型
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageType {
@@ -17,9 +17,9 @@ pub enum MessageType {
     System,
 }
 
-/// 发送消息请求
+/// 发送群组消息请求
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SendMessageRequest {
+pub struct SendGroupMessageRequest {
     /// 群组ID
     pub group_id: String,
     /// 消息类型
@@ -28,18 +28,18 @@ pub struct SendMessageRequest {
     pub content: String,
 }
 
-/// 发送消息响应
+/// 消息发送响应
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SendMessageResponse {
+pub struct MessageSendResponse {
     /// 消息ID
     pub message_id: String,
     /// 发送时间
     pub sent_at: DateTime<Utc>,
 }
 
-/// 获取消息历史请求
+/// 查询群组消息历史请求
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GetMessageHistoryRequest {
+pub struct QueryGroupMessageHistoryRequest {
     /// 群组ID
     pub group_id: String,
     /// 分页标记（上一页最后一条消息的ID）
@@ -48,9 +48,24 @@ pub struct GetMessageHistoryRequest {
     pub limit: u32,
 }
 
-/// 消息详情
+/// 删除消息响应
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MessageDetail {
+pub struct DeleteMessageResponse {
+    pub success: bool,
+}
+
+/// 获取消息历史分页参数（用于路径参数版本的API）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetMessageHistoryPageParams {
+    /// 分页标记（上一页最后一条消息的ID）
+    pub cursor: Option<String>,
+    /// 消息数量限制
+    pub limit: u32,
+}
+
+/// 消息详细信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MessageDetailedInfo {
     /// 消息ID
     pub id: String,
     /// 群组ID
@@ -67,13 +82,25 @@ pub struct MessageDetail {
     pub sent_at: DateTime<Utc>,
 }
 
-/// 获取消息历史响应
+/// 群组消息历史响应
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GetMessageHistoryResponse {
+pub struct GroupMessageHistoryResponse {
     /// 消息列表
-    pub messages: Vec<MessageDetail>,
+    pub messages: Vec<MessageDetailedInfo>,
     /// 下一页游标
     pub next_cursor: Option<String>,
     /// 是否还有更多消息
     pub has_more: bool,
-} 
+}
+
+/// 消息详情 (别名，与MessageDetailedInfo相同)
+pub type MessageDetail = MessageDetailedInfo;
+
+/// 获取消息历史响应 (别名，与GroupMessageHistoryResponse相同)
+pub type GetMessageHistoryResponse = GroupMessageHistoryResponse;
+
+/// 发送消息请求 (别名，与SendGroupMessageRequest相同)
+pub type SendMessageRequest = SendGroupMessageRequest;
+
+/// 发送消息响应 (别名，与MessageSendResponse相同)
+pub type SendMessageResponse = MessageSendResponse;

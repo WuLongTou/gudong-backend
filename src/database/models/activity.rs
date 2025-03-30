@@ -60,9 +60,20 @@ impl ActivityEntity {
             _ => ActivityType::UserCheckIn, // 默认为签到
         }
     }
-    
+
     /// 设置活动类型
     pub fn set_activity_type(&mut self, activity_type: ActivityType) {
         self.activity_type = activity_type as i32;
     }
-} 
+}
+
+/// 近期用户活动信息
+pub struct NearbyUserActivity {
+    pub user_id: String,
+    pub nickname: String,
+    pub last_activity_id: Option<String>,
+    pub last_activity_type: Option<String>,
+    pub last_activity_description: Option<String>,
+    pub last_activity_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub distance: Option<f64>,
+}

@@ -6,4 +6,4 @@ pub struct CachedRateLimit {
     pub key: String,
     pub count: u32,
     pub reset_at: i64, // Unix timestamp
-} 
+}
